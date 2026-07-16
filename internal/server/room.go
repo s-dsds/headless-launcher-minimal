@@ -14,7 +14,6 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"headless-launcher-go/internal/hack"
-	"headless-launcher-go/internal/names"
 )
 
 // RoomPage manages a single Chrome tab running a WebLiero room.
@@ -54,9 +53,8 @@ func NewRoomPage(browserCtx context.Context, id string) (*RoomPage, error) {
 	// Register exposed functions before navigation
 	rp.bridge.Register("__getPaletteFromPng", stubExposedFunc)
 	rp.bridge.Register("__convertPngToArray", stubExposedFunc)
-	rp.bridge.Register("__getRandomName", func(args []json.RawMessage) (any, error) {
-		return names.GetRandomName(), nil
-	})
+	// __getRandomName was ported to a browser-side JS function
+	// (builder-room/__randomname.js) — the launcher no longer provides it.
 	rp.bridge.Register("__commitLevel", stubExposedFunc)
 	rp.bridge.Register("__getInterestingPaths", func(args []json.RawMessage) (any, error) {
 		return hack.GetPaths(), nil
