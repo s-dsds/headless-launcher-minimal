@@ -10,13 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chromedp/cdproto/fetch"
-	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/performance"
 	"github.com/chromedp/chromedp"
 	"github.com/joho/godotenv"
 
-	"headless-launcher-go/internal/hack"
 	"headless-launcher-go/internal/ipc"
 )
 
@@ -38,10 +35,10 @@ func StartServer(show bool, chromePath string) error {
 	if chromePath != "" {
 		chromeExecPath = chromePath
 	}
+	// Optional server-wide default script to serve when a launch doesn't pass
+	// --script. Empty = vanilla webliero client (the default; hacking is opt-in
+	// via --script <file-from-headless-modifier>).
 	headlessScript := os.Getenv("HEADLESS_SCRIPT")
-	if headlessScript == "" {
-		headlessScript = "headless-min.js"
-	}
 
 	log.Println("Starting chromium...", chromeExecPath)
 
@@ -132,8 +129,6 @@ func (s *Server) handleConnection(conn *ipc.Conn) {
 		s.handleFollow(conn, env.Data)
 	case "metrics":
 		s.handleMetrics(conn, env.Data)
-	case "fetch-script":
-		s.handleFetchScript(conn)
 	default:
 		log.Println("unknown message type:", env.Type)
 	}
@@ -206,12 +201,15 @@ func (s *Server) handleLaunch(conn *ipc.Conn, data json.RawMessage) {
 	// Follow page logs to this client
 	s.followPage(conn, rp)
 
-	headlessScript := s.headlessScript
-	if msg.HeadlessScript != "" {
-		headlessScript = msg.HeadlessScript
+	// Serve a local script (e.g. one hacked by headless-modifier) only when
+	// asked via --script or the HEADLESS_SCRIPT env default; otherwise the room
+	// runs webliero's vanilla client.
+	headlessScript := msg.HeadlessScript
+	if headlessScript == "" {
+		headlessScript = s.headlessScript
 	}
 
-	if err := rp.LoadHeadless(headlessScript, msg.Hacked); err != nil {
+	if err := rp.LoadHeadless(headlessScript); err != nil {
 		s.sendMessage(conn, fmt.Sprintf("load headless: %v", err))
 		return
 	}
@@ -384,144 +382,4 @@ func (s *Server) handleMetrics(conn *ipc.Conn, data json.RawMessage) {
 			}
 		}
 	}
-}
-
-func (s *Server) handleFetchScript(conn *ipc.Conn) {
-	s.sendMessage(conn, "Fetching headless script...")
-
-	rp, err := NewRoomPage(s.browserCtx, "__fetch__")
-	if err != nil {
-		s.sendMessage(conn, fmt.Sprintf("create fetch page: %v", err))
-		return
-	}
-	defer rp.Close()
-
-	// Intercept at Response stage to capture the script body
-	var scriptBody []byte
-	captured := make(chan struct{}, 1)
-
-	if err := fetch.Enable().WithPatterns([]*fetch.RequestPattern{
-		{
-			URLPattern:   "*headless-min.js*",
-			ResourceType: network.ResourceTypeScript,
-			RequestStage: fetch.RequestStageResponse,
-		},
-	}).Do(rp.ctx); err != nil {
-		s.sendMessage(conn, fmt.Sprintf("enable fetch: %v", err))
-		return
-	}
-
-	chromedp.ListenTarget(rp.ctx, func(ev interface{}) {
-		if e, ok := ev.(*fetch.EventRequestPaused); ok {
-			go func() {
-				s.sendMessage(conn, e.Request.URL)
-				body, err := fetch.GetResponseBody(e.RequestID).Do(rp.ctx)
-				if err != nil {
-					log.Printf("fetch-script: get body: %v", err)
-					fetch.ContinueResponse(e.RequestID).Do(rp.ctx)
-					return
-				}
-				scriptBody = body
-				fetch.ContinueResponse(e.RequestID).Do(rp.ctx)
-				select {
-				case captured <- struct{}{}:
-				default:
-				}
-			}()
-		}
-	})
-
-	// Navigate to trigger the script load
-	if err := chromedp.Navigate("https://www.webliero.com/headless").Do(rp.ctx); err != nil {
-		s.sendMessage(conn, fmt.Sprintf("navigate: %v", err))
-		return
-	}
-
-	// Wait for the script to be captured
-	select {
-	case <-captured:
-	case <-time.After(30 * time.Second):
-		s.sendMessage(conn, "timeout waiting for script")
-		return
-	}
-
-	if len(scriptBody) == 0 {
-		s.sendMessage(conn, "failed to capture script body")
-		return
-	}
-
-	// Beautify by loading js-beautify in the page and running it
-	beautified := string(scriptBody)
-
-	// Load js-beautify from CDN into the page, then beautify
-	beautyJS := fmt.Sprintf(`
-		(async function() {
-			await new Promise((resolve, reject) => {
-				var s = document.createElement('script');
-				s.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify.min.js';
-				s.onload = resolve;
-				s.onerror = reject;
-				document.head.appendChild(s);
-			});
-			return js_beautify(%s, {
-				indent_size: 4,
-				indent_char: " ",
-				max_preserve_newlines: 5,
-				preserve_newlines: true,
-				keep_array_indentation: false,
-				break_chained_methods: false,
-				brace_style: "collapse",
-				space_before_conditional: true,
-				unescape_strings: false,
-				jslint_happy: false,
-				end_with_newline: false,
-				wrap_line_length: 0,
-				comma_first: false,
-				e4x: false,
-				indent_empty_lines: false
-			});
-		})()
-	`, jsonStringLiteral(beautified))
-
-	var prettyBody string
-	if err := chromedp.Evaluate(beautyJS, &prettyBody, chromedp.EvalAsValue).Do(rp.ctx); err == nil && prettyBody != "" {
-		beautified = prettyBody
-	} else if err != nil {
-		log.Printf("beautify failed (continuing with raw): %v", err)
-	}
-
-	// Write original backup
-	ts := time.Now().Unix()
-	originalName := fmt.Sprintf("headless-min-original-%d.js", ts)
-	if err := os.WriteFile(originalName, []byte(beautified), 0644); err != nil {
-		s.sendMessage(conn, fmt.Sprintf("write original: %v", err))
-		return
-	}
-	s.sendMessage(conn, "original file written")
-
-	// Hack the script
-	s.sendMessage(conn, "try hacking script")
-	result, err := hack.HackScript(beautified)
-	if err != nil {
-		s.sendMessage(conn, "error hacking script")
-		s.sendMessage(conn, err.Error())
-		return
-	}
-
-	matchesJSON, _ := json.Marshal(result.Matches)
-	pathsJSON, _ := json.Marshal(result.Paths)
-	s.sendMessage(conn, "matches "+string(matchesJSON))
-	s.sendMessage(conn, "paths "+string(pathsJSON))
-
-	if err := os.WriteFile("headless-min.js", []byte(result.Script), 0644); err != nil {
-		s.sendMessage(conn, fmt.Sprintf("write hacked: %v", err))
-		return
-	}
-
-	s.sendMessage(conn, "fetched")
-}
-
-func jsonStringLiteral(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
 }

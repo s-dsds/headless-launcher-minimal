@@ -25,15 +25,11 @@ jobs:
       - name: Build all targets
         run: |
           mkdir -p dist
-          build() { # os arch suffix — builds wlhl AND hackfile (the offline
-                    # client-hack tool the room-fork features depend on)
+          build() { # os arch suffix
             echo "building $1/$2"
             CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
               go build -trimpath -ldflags "-s -w" \
               -o "dist/wlhl-$1-$2$3" ./cmd/wlhl
-            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
-              go build -trimpath -ldflags "-s -w" \
-              -o "dist/hackfile-$1-$2$3" ./cmd/hackfile
           }
           build linux   amd64 ""
           build linux   arm64 ""

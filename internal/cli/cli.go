@@ -31,7 +31,6 @@ func init() {
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(followCmd)
 	rootCmd.AddCommand(statsCmd)
-	rootCmd.AddCommand(fetchScriptCmd)
 }
 
 // --- server ---
@@ -56,7 +55,6 @@ func init() {
 
 var launchToken string
 var launchID string
-var launchNohack bool
 var launchScript string
 
 var launchCmd = &cobra.Command{
@@ -68,7 +66,6 @@ var launchCmd = &cobra.Command{
 			ScriptPath:     ipc.StringOrStrings(scripts),
 			Token:          launchToken,
 			ID:             launchID,
-			Hacked:         !launchNohack,
 			HeadlessScript: launchScript,
 		}
 		return connect("launch", msg, defaultHandler)
@@ -78,8 +75,7 @@ var launchCmd = &cobra.Command{
 func init() {
 	launchCmd.Flags().StringVar(&launchToken, "token", "", "The headless token to use with the room")
 	launchCmd.Flags().StringVar(&launchID, "id", "default", "The id to give the room")
-	launchCmd.Flags().BoolVar(&launchNohack, "nohack", false, "Disable hack system")
-	launchCmd.Flags().StringVar(&launchScript, "script", "", "Custom headless script path for this room")
+	launchCmd.Flags().StringVar(&launchScript, "script", "", "Serve this headless-min.js instead of webliero's (e.g. one hacked by headless-modifier); omit for the vanilla client")
 }
 
 // --- run ---
@@ -96,16 +92,6 @@ var runCmd = &cobra.Command{
 			ID:          id,
 		}
 		return connect("run-script", msg, defaultHandler)
-	},
-}
-
-// --- fetch-script ---
-
-var fetchScriptCmd = &cobra.Command{
-	Use:   "fetch-script",
-	Short: "Fetches the headless script, beautifies it, and applies hacks",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return connect("fetch-script", nil, defaultHandler)
 	},
 }
 
@@ -214,4 +200,3 @@ func prettyBytes(b float64) string {
 	}
 	return fmt.Sprintf("%.2f %s", b, units[i])
 }
-

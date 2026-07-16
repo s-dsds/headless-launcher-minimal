@@ -12,8 +12,6 @@ import (
 	"github.com/chromedp/cdproto/fetch"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
-
-	"headless-launcher-go/internal/hack"
 )
 
 // RoomPage manages a single Chrome tab running a WebLiero room.
@@ -50,15 +48,12 @@ func NewRoomPage(browserCtx context.Context, id string) (*RoomPage, error) {
 		bridge: newExposeBridge(),
 	}
 
-	// Register exposed functions before navigation
-	rp.bridge.Register("__getPaletteFromPng", stubExposedFunc)
-	rp.bridge.Register("__convertPngToArray", stubExposedFunc)
-	// __getRandomName was ported to a browser-side JS function
-	// (builder-room/__randomname.js) — the launcher no longer provides it.
-	rp.bridge.Register("__commitLevel", stubExposedFunc)
-	rp.bridge.Register("__getInterestingPaths", func(args []json.RawMessage) (any, error) {
-		return hack.GetPaths(), nil
-	})
+	// The launcher no longer exposes any Go-backed room functions: the old
+	// __getPaletteFromPng/__convertPngToArray/__commitLevel were dead no-op
+	// stubs, __getInterestingPaths was a hack debug hook, and __getRandomName
+	// moved to a browser-side script (builder-room/__randomname.js). Anything
+	// a room needs from the client (weapons, callbacks, __ReadPNG) now comes
+	// baked into the hacked script produced by headless-modifier.
 
 	// Force tab creation so we can set up listeners
 	if err := chromedp.Run(tabCtx); err != nil {
@@ -170,16 +165,19 @@ func resolveRemoteObject(obj *cdpruntime.RemoteObject) string {
 	return fmt.Sprintf("[%s]", obj.Type)
 }
 
-// LoadHeadless navigates to webliero.com/headless, optionally intercepting the script.
-func (rp *RoomPage) LoadHeadless(scriptPath string, hacked bool) error {
+// LoadHeadless navigates to webliero.com/headless. When scriptPath is set, the
+// headless-min.js request is intercepted and served from that file (e.g. a
+// script hacked by headless-modifier); otherwise webliero's own vanilla client
+// loads unmodified.
+func (rp *RoomPage) LoadHeadless(scriptPath string) error {
 	rp.log("Loading headless...")
 
-	if hacked {
+	if scriptPath != "" {
 		scriptContents, err := os.ReadFile(scriptPath)
 		if err != nil {
-			return fmt.Errorf("read hacked script: %w", err)
+			return fmt.Errorf("read script %s: %w", scriptPath, err)
 		}
-		rp.log(fmt.Sprintf("hacked script length %d", len(scriptContents)))
+		rp.log(fmt.Sprintf("serving script %s (%d bytes)", scriptPath, len(scriptContents)))
 		// CDP Fetch.fulfillRequest requires the body base64-encoded; passing
 		// raw JS gives -32602 Invalid parameters (regardless of size).
 		scriptB64 := base64.StdEncoding.EncodeToString(scriptContents)
@@ -274,8 +272,4 @@ func (rp *RoomPage) Close() error {
 // Context returns the chromedp context for this room's tab.
 func (rp *RoomPage) Context() context.Context {
 	return rp.ctx
-}
-
-func stubExposedFunc(args []json.RawMessage) (any, error) {
-	return nil, nil
 }

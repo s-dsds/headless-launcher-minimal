@@ -7,7 +7,6 @@ type LaunchMsg struct {
 	ScriptPath     StringOrStrings `json:"scriptPath"`
 	Token          string          `json:"token"`
 	ID             string          `json:"id"`
-	Hacked         bool            `json:"hacked"`
 	HeadlessScript string          `json:"HeadlessScript,omitempty"`
 }
 
