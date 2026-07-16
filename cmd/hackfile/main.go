@@ -8,6 +8,20 @@ import (
 )
 
 func main() {
+	if len(os.Args) != 3 {
+		fmt.Fprintln(os.Stderr, `usage: hackfile <beautified-headless-min.js> <output.js>
+
+Applies the wlhl hack pack (weapon-ban API, onPlayerHit/onPlayerSpawn
+callbacks, player worm ref) to a captured webliero headless client script.
+
+The input MUST be beautified first — the structural regexes assume
+js-beautify spacing. Typical pipeline:
+  curl -s https://www.webliero.com/v/20/headless-min.js -o raw.js
+  js-beautify raw.js -o pretty.js       # npm i -g js-beautify (or python jsbeautifier)
+  hackfile pretty.js hacked-min.js
+Then launch the room with:  wlhl launch --id X --token T --script hacked-min.js`)
+		os.Exit(2)
+	}
 	src, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "read:", err)
