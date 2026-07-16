@@ -1,0 +1,48 @@
+# Build wlhl release binaries on tag push (v*).
+# All deps (chromedp, cobra) are pure Go, so CGO_ENABLED=0 cross-compiles
+# cleanly for every target. Chrome itself is a runtime dependency on the host.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release + upload assets
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build all targets
+        run: |
+          mkdir -p dist
+          build() { # os arch suffix
+            echo "building $1/$2"
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
+              go build -trimpath -ldflags "-s -w" \
+              -o "dist/wlhl-$1-$2$3" ./cmd/wlhl
+          }
+          build linux   amd64 ""
+          build linux   arm64 ""
+          build linux   arm   ""      # 32-bit (older Pi-class boxes)
+          build windows amd64 ".exe"
+          build darwin  amd64 ""
+          build darwin  arm64 ""      # Apple Silicon
+          (cd dist && sha256sum * > SHA256SUMS)
+          ls -l dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
