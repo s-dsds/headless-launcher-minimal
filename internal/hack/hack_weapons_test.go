@@ -13,11 +13,20 @@ import (
 // rather than embedded.
 const capturedScriptPath = "/home/qmdev/liero/dock/headless-launcher/headless-min-original-1680395495.js"
 
-func TestAddAPIWeaponBans_ResolvesAndEmitsOnCapturedScript(t *testing.T) {
-	raw, err := os.ReadFile(capturedScriptPath)
+// readFixture loads a captured client script, skipping the test when the
+// fixture isn't present (CI: the minified webliero client is deliberately not
+// committed — these tests only run on a dev box that has the captures).
+func readFixture(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read captured script: %v", err)
+		t.Skipf("captured script not available (%v) — skipping (dev-box-only fixture)", err)
 	}
+	return raw
+}
+
+func TestAddAPIWeaponBans_ResolvesAndEmitsOnCapturedScript(t *testing.T) {
+	raw := readFixture(t, capturedScriptPath)
 
 	result, err := HackScript(string(raw))
 	if err != nil {
@@ -79,10 +88,7 @@ func TestAddAPIWeaponBans_ResolvesAndEmitsOnCapturedScript(t *testing.T) {
 }
 
 func TestWeaponBanAnchors_NoFalseMatchOnUnrelatedClasses(t *testing.T) {
-	raw, err := os.ReadFile(capturedScriptPath)
-	if err != nil {
-		t.Fatalf("read captured script: %v", err)
-	}
+	raw := readFixture(t, capturedScriptPath)
 	s := string(raw)
 
 	// Ta (a different, unrelated message class in this capture) must not be
