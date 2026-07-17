@@ -331,8 +331,10 @@ func (s *Server) handleMetrics(conn *ipc.Conn, data json.RawMessage) {
 	}
 	rp := val.(*RoomPage)
 
-	// Enable performance domain
-	if err := performance.Enable().Do(rp.ctx); err != nil {
+	// Enable performance domain. Must go through chromedp.Run so the CDP
+	// executor is present in the context — calling Do(rp.ctx) directly fails
+	// with "invalid context" (the executor is only injected by Run).
+	if err := chromedp.Run(rp.ctx, performance.Enable()); err != nil {
 		s.sendMessage(conn, fmt.Sprintf("enable performance: %v", err))
 		return
 	}
@@ -356,8 +358,12 @@ func (s *Server) handleMetrics(conn *ipc.Conn, data json.RawMessage) {
 		case <-done:
 			return
 		case <-ticker.C:
-			metrics, err := performance.GetMetrics().Do(rp.ctx)
-			if err != nil {
+			var metrics []*performance.Metric
+			if err := chromedp.Run(rp.ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				var e error
+				metrics, e = performance.GetMetrics().Do(ctx)
+				return e
+			})); err != nil {
 				return
 			}
 
