@@ -78,10 +78,20 @@ func (w *Writer) rotate() error {
 		return err
 	}
 	w.f = nil
+	// Any failure below leaves the ORIGINAL file in place (nothing renamed it
+	// away yet on the error paths), so recover by reopening it — that keeps the
+	// invariant "a failed rotate degrades to writing the oversized file, never
+	// drops output". Without this, w.f stays nil and Write() wedges forever.
+	recover := func(err error) error {
+		if oerr := w.open(); oerr != nil {
+			return fmt.Errorf("rotate failed (%v) and reopen failed: %w", err, oerr)
+		}
+		return err // rotate didn't happen, but the writer is live again
+	}
 	if w.backups == 0 {
 		// no backups kept: truncate in place
 		if err := os.Remove(w.path); err != nil && !os.IsNotExist(err) {
-			return err
+			return recover(err)
 		}
 		return w.open()
 	}
@@ -96,7 +106,7 @@ func (w *Writer) rotate() error {
 	first := w.path + ".1"
 	os.Remove(first)
 	if err := os.Rename(w.path, first); err != nil && !os.IsNotExist(err) {
-		return err
+		return recover(err) // original still at w.path — reopen it, don't wedge
 	}
 	return w.open()
 }

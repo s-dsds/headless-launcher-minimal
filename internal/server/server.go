@@ -26,6 +26,7 @@ type Server struct {
 	browserCtx     context.Context
 	browserCancel  context.CancelFunc
 	pages          sync.Map // map[string]*RoomPage
+	launchMu       sync.Mutex // serializes the dup-check + cap + slot reservation in LaunchRoom
 	headlessScript string
 
 	listener net.Listener
@@ -82,18 +83,26 @@ func (s *Server) roomCount() int {
 // when non-nil, runs right after the page exists — before scripts — so callers
 // can subscribe to logs early (the IPC client uses it for follow mode).
 func (s *Server) LaunchRoom(id, token, headlessScript string, scripts []string, attach func(*RoomPage)) (*RoomPage, error) {
+	// Reserve the slot under a lock so two concurrent launches (e.g. an HTTP
+	// retry racing an IPC launch) can't both pass the dup-check / cap and both
+	// spin up a Chrome tab, orphaning one. NewRoomPage is the slow part and runs
+	// after we've claimed the id, so this serializes only the cheap reservation.
+	s.launchMu.Lock()
 	if _, loaded := s.pages.Load(id); loaded {
+		s.launchMu.Unlock()
 		return nil, fmt.Errorf("%q is already running, stop it first", id)
 	}
 	if s.maxRooms > 0 && s.roomCount() >= s.maxRooms {
+		s.launchMu.Unlock()
 		return nil, fmt.Errorf("room cap reached (%d): webliero.com allows at most 4 rooms per IP", s.maxRooms)
 	}
-
 	rp, err := NewRoomPage(s.browserCtx, id)
 	if err != nil {
+		s.launchMu.Unlock()
 		return nil, fmt.Errorf("create room: %w", err)
 	}
 	s.pages.Store(id, rp)
+	s.launchMu.Unlock()
 
 	// Server-side logging + local chat capture
 	rp.OnLog(func(m string) {

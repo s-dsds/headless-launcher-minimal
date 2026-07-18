@@ -172,6 +172,16 @@ func (s *Server) apiCreateRoom(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// The generated CONFIG script is a temp file; LaunchRoom reads it into the
+	// browser synchronously, so it's safe to remove once LaunchRoom returns
+	// (success or failure) rather than leaking one temp file per create.
+	defer func() {
+		for _, p := range scripts {
+			if strings.HasPrefix(filepath.Base(p), "wlhl-conf-") {
+				os.Remove(p)
+			}
+		}
+	}()
 
 	if _, err := s.LaunchRoom(body.ID, body.Token, "", scripts, nil); err != nil {
 		apiError(w, http.StatusConflict, err.Error())

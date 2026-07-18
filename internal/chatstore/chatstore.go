@@ -137,6 +137,12 @@ func (s *Store) Search(roomID, q string, limit int, beforeDay string) (msgs []js
 		if err != nil {
 			continue
 		}
+		// Drain the whole day even past `limit`: paging is day-granular (the
+		// caller passes scannedTo back as beforeDay), so a day must be fully
+		// scanned before we advance past it — breaking mid-day would strand its
+		// older matches, unreachable on the next page. The outer len>=limit check
+		// stops us before opening a NEW day, so over-return is bounded by one
+		// day's match count.
 		for _, raw := range dayMsgs {
 			var m Message
 			if json.Unmarshal(raw, &m) != nil {
@@ -146,9 +152,6 @@ func (s *Store) Search(roomID, q string, limit int, beforeDay string) (msgs []js
 				strings.Contains(strings.ToLower(m.Auth), needle) ||
 				strings.Contains(strings.ToLower(m.Msg), needle) {
 				msgs = append(msgs, raw)
-				if len(msgs) >= limit {
-					break
-				}
 			}
 		}
 	}
