@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -40,15 +41,30 @@ var serverChromePath string
 var serverLogFile string
 var serverLogMaxMB int
 var serverLogBackups int
+var serverHTTPAddr string
+var serverHTTPToken string
+var serverDataDir string
+var serverProfilesDir string
+var serverMaxRooms int
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Starts the headless chromium browser and waits for cli commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		token := serverHTTPToken
+		if token == "" {
+			token = os.Getenv("WLHL_API_TOKEN")
+		}
 		return server.StartServer(serverShow, serverChromePath, server.LogConfig{
 			Path:    serverLogFile,
 			MaxMB:   serverLogMaxMB,
 			Backups: serverLogBackups,
+		}, server.APIConfig{
+			Addr:        serverHTTPAddr,
+			Token:       token,
+			DataDir:     serverDataDir,
+			ProfilesDir: serverProfilesDir,
+			MaxRooms:    serverMaxRooms,
 		})
 	},
 }
@@ -59,6 +75,11 @@ func init() {
 	serverCmd.Flags().StringVar(&serverLogFile, "log-file", "", "Also write logs to this file, with built-in size rotation (portable: no systemd/NSSM needed)")
 	serverCmd.Flags().IntVar(&serverLogMaxMB, "log-max-size", 50, "Rotate the log file when it reaches this many MB")
 	serverCmd.Flags().IntVar(&serverLogBackups, "log-max-backups", 5, "How many rotated log files to keep")
+	serverCmd.Flags().StringVar(&serverHTTPAddr, "http", "", "Enable the HTTP API on this address (e.g. 127.0.0.1:8091); expose it through a tunnel, not directly")
+	serverCmd.Flags().StringVar(&serverHTTPToken, "http-token", "", "Bearer token for the HTTP API (or env WLHL_API_TOKEN)")
+	serverCmd.Flags().StringVar(&serverDataDir, "data-dir", "wlhl-data", "Root directory for the local chat store")
+	serverCmd.Flags().StringVar(&serverProfilesDir, "profiles-dir", "", "Directory of room profiles (subdir of *.js per profile) for API room creation; empty disables creation")
+	serverCmd.Flags().IntVar(&serverMaxRooms, "max-rooms", 4, "Cap on concurrently running rooms (webliero.com allows 4 per IP)")
 }
 
 // --- launch ---

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/chromedp/cdproto/fetch"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
@@ -24,6 +26,52 @@ type RoomPage struct {
 	mu       sync.Mutex
 	logFuncs []func(string)
 	code     string // webliero room code, parsed from the onRoomLink console line
+
+	// Bounded ring of recent log lines so the HTTP API can serve tails without
+	// touching the (possibly huge) log file. Newest at (recentPos-1)%cap.
+	recent    []LogLine
+	recentPos int
+
+	// chatSink receives the JSON payload of structured "@@CHAT@@ {...}" console
+	// lines (set by the server when a chat store is configured).
+	chatSink func(payload string)
+}
+
+// LogLine is one captured console/exception line.
+type LogLine struct {
+	At  time.Time `json:"at"`
+	Msg string    `json:"msg"`
+}
+
+// recentCap bounds per-room retained log lines (~2000 lines ≈ a few hundred KB
+// worst-case). History beyond this lives in the server's --log-file.
+const recentCap = 2000
+
+// chatMarker prefixes structured chat lines emitted by the room script.
+const chatMarker = "@@CHAT@@ "
+
+// SetChatSink registers the receiver for structured chat payloads.
+func (rp *RoomPage) SetChatSink(fn func(payload string)) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	rp.chatSink = fn
+}
+
+// TailLogs returns up to n recent log lines, oldest first.
+func (rp *RoomPage) TailLogs(n int) []LogLine {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	size := len(rp.recent)
+	if n > size {
+		n = size
+	}
+	out := make([]LogLine, 0, n)
+	// ring is either not yet wrapped (recentPos==len) or wrapped (fixed cap)
+	start := rp.recentPos - n
+	for i := start; i < rp.recentPos; i++ {
+		out = append(out, rp.recent[((i%size)+size)%size])
+	}
+	return out
 }
 
 // roomLinkRe extracts the room code from the onRoomLink URL the client logs,
@@ -110,9 +158,23 @@ func (rp *RoomPage) OffLog(fn func(string)) {
 
 func (rp *RoomPage) log(msg string) {
 	rp.mu.Lock()
+	line := LogLine{At: time.Now(), Msg: msg}
+	if len(rp.recent) < recentCap {
+		rp.recent = append(rp.recent, line)
+	} else {
+		rp.recent[rp.recentPos%recentCap] = line
+	}
+	rp.recentPos++
 	fns := make([]func(string), len(rp.logFuncs))
 	copy(fns, rp.logFuncs)
+	sink := rp.chatSink
 	rp.mu.Unlock()
+
+	// Structured chat line → the chat store (the raw line still goes to the
+	// normal log below: logs stay the ground truth, the store is the index).
+	if sink != nil && strings.HasPrefix(msg, chatMarker) {
+		sink(strings.TrimPrefix(msg, chatMarker))
+	}
 
 	for _, fn := range fns {
 		fn(msg)

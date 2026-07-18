@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 )
 
 const Delimiter = '\f' // form-feed, matches node-ipc default
@@ -96,5 +97,10 @@ func splitOnFormFeed(data []byte, atEOF bool) (advance int, token []byte, err er
 
 // SocketPath returns the default node-ipc socket path.
 func SocketPath() string {
+	// Overridable so a second instance (e.g. testing a new build) can run
+	// beside a live server without stealing its socket.
+	if p := os.Getenv("WLHL_SOCKET"); p != "" {
+		return p
+	}
 	return "/tmp/app.wlserver"
 }
