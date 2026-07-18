@@ -12,6 +12,16 @@ wlhl follow myroom                               # stream a room's logs
 wlhl stop myroom
 ```
 
+## More docs
+
+- **[HOSTING.md](HOSTING.md)** — connect a server to the room-admin panel
+  (HTTP API, tunnels: ngrok / cloudflared examples, host registration, room
+  creation from the panel).
+- **[LOGGING.md](LOGGING.md)** — durable rotated logs on any platform
+  (built-in `--log-file`, systemd/NSSM/launchd/screen alternatives).
+- **[_specs/http-api.md](_specs/http-api.md)** — the HTTP API design: local
+  chat store, bounded log tails, profile-based room lifecycle.
+
 ## Hacked client
 
 The launcher itself does **not** patch the client — it's hack-free and carries
