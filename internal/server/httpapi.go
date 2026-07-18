@@ -82,6 +82,21 @@ func (s *Server) startHTTP(cfg APIConfig) error {
 		writeAPI(w, days)
 	})
 
+	mux.HandleFunc("GET /api/rooms/{id}/chat/search", func(w http.ResponseWriter, r *http.Request) {
+		if s.chatStore == nil {
+			apiError(w, http.StatusServiceUnavailable, "chat store disabled")
+			return
+		}
+		q := r.URL.Query()
+		msgs, scannedTo, err := s.chatStore.Search(r.PathValue("id"), q.Get("q"),
+			clampInt(q.Get("limit"), 100, 1, 500), q.Get("beforeDay"))
+		if err != nil {
+			apiError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeAPI(w, map[string]any{"messages": msgs, "scannedTo": scannedTo})
+	})
+
 	mux.HandleFunc("GET /api/rooms/{id}/chat", func(w http.ResponseWriter, r *http.Request) {
 		if s.chatStore == nil {
 			apiError(w, http.StatusServiceUnavailable, "chat store disabled")

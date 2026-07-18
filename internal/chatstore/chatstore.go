@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -102,6 +103,59 @@ func (s *Store) Dates(roomID string) ([]string, error) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(days)))
 	return days, nil
+}
+
+// Search scans day files NEWEST-first for messages whose name, auth or msg
+// contains q (case-insensitive), until `limit` hits or searchMaxDays files are
+// scanned. beforeDay ("" = start at the newest) pages further back: pass the
+// returned scannedTo as the next beforeDay. Local JSONL makes this cheap —
+// the RTDB model couldn't query nested fields at all.
+func (s *Store) Search(roomID, q string, limit int, beforeDay string) (msgs []json.RawMessage, scannedTo string, err error) {
+	const searchMaxDays = 60
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	needle := strings.ToLower(q)
+	if needle == "" {
+		return nil, "", fmt.Errorf("q is required")
+	}
+	days, err := s.Dates(roomID) // newest first
+	if err != nil {
+		return nil, "", err
+	}
+	scanned := 0
+	for _, day := range days {
+		if beforeDay != "" && day >= beforeDay {
+			continue
+		}
+		if scanned >= searchMaxDays || len(msgs) >= limit {
+			break
+		}
+		scanned++
+		scannedTo = day
+		dayMsgs, err := s.Query(roomID, day, 500, 0) // newest-first within the day
+		if err != nil {
+			continue
+		}
+		for _, raw := range dayMsgs {
+			var m Message
+			if json.Unmarshal(raw, &m) != nil {
+				continue
+			}
+			if strings.Contains(strings.ToLower(m.Name), needle) ||
+				strings.Contains(strings.ToLower(m.Auth), needle) ||
+				strings.Contains(strings.ToLower(m.Msg), needle) {
+				msgs = append(msgs, raw)
+				if len(msgs) >= limit {
+					break
+				}
+			}
+		}
+	}
+	if msgs == nil {
+		msgs = []json.RawMessage{}
+	}
+	return msgs, scannedTo, nil
 }
 
 // Query returns up to limit messages for the day, NEWEST first, optionally

@@ -43,6 +43,44 @@ func TestAppendQueryPaging(t *testing.T) {
 	}
 }
 
+func TestSearch(t *testing.T) {
+	s := New(t.TempDir())
+	// two days: day1 has daro, day2 (newer) has momo + daro
+	day1, day2 := int64(1784000000000), int64(1784100000000)
+	add := func(ts int64, name, msg string) {
+		p, _ := json.Marshal(map[string]any{"ts": ts, "name": name, "auth": "a_" + name, "msg": msg})
+		if err := s.Append("room1", string(p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(day1, "daro", "old message")
+	add(day2, "momo", "hi there")
+	add(day2+1000, "daro", "GG all")
+
+	// name match, case-insensitive, newest first, across days
+	msgs, _, err := s.Search("room1", "DARO", 10, "")
+	if err != nil || len(msgs) != 2 {
+		t.Fatalf("search daro: %d %v", len(msgs), err)
+	}
+	var first Message
+	json.Unmarshal(msgs[0], &first)
+	if first.Msg != "GG all" {
+		t.Fatalf("want newest first, got %q", first.Msg)
+	}
+	// msg match
+	if m, _, _ := s.Search("room1", "hi there", 10, ""); len(m) != 1 {
+		t.Fatalf("msg search: %d", len(m))
+	}
+	// auth match
+	if m, _, _ := s.Search("room1", "a_momo", 10, ""); len(m) != 1 {
+		t.Fatalf("auth search: %d", len(m))
+	}
+	// empty q rejected
+	if _, _, err := s.Search("room1", "", 10, ""); err == nil {
+		t.Fatal("want empty q rejected")
+	}
+}
+
 func TestRejects(t *testing.T) {
 	s := New(t.TempDir())
 	if err := s.Append("room1", "not json"); err == nil {
