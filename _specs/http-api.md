@@ -118,9 +118,13 @@ the ring lives in `--log-file`.
    (ext-proxy aa95ac4).
 4. ✅ **ext-proxy: createroom/stop + grant perms + picker Create-room form**
    (same commit). End-to-end verified against a live test host.
-5. Later: panel chat tab reads from the host API when the room has a host;
-   then drop the fork's RTDB chat write. Also later: room "restart with new
-   token" flow (stop keeps settings; relaunch just needs a fresh token).
+5. ✅ **Panel chat from the host store + cross-day search** (wlhl b6ecdbc,
+   ext-proxy 33e1df7): hosted rooms' Chat tab reads `hostchat*` proxies
+   (RTDB fallback for unhosted rooms); owners link existing rooms via
+   rooms-PATCH hostId. Chat search (name/auth/msg) closes the old RTDB-era
+   search ask. NEXT: once proven in prod, drop the fork's RTDB chat
+   dual-write. Also later: room "restart with new token" flow (stop keeps
+   settings; relaunch just needs a fresh token).
 
 ## Deploy notes
 
