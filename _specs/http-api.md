@@ -108,10 +108,23 @@ the ring lives in `--log-file`.
 
 ## Phasing
 
-1. **wlhl API + chat store + ring buffer** (this repo) — standalone testable
-   with a second server instance and a dummy room.
-2. **Fork chat emit** (`@@CHAT@@` line in `writeLog`, RTDB kept).
-3. **ext-proxy: hosts CRUD + hostlogs proxy + panel Server-logs view.**
-4. **ext-proxy: createroom/stop + grant perms + picker-page Create-room UI.**
-5. Later: panel chat tab reads from host API when the room has a host; drop
-   the RTDB chat write.
+1. ✅ **wlhl API + chat store + ring buffer** (e9d2822) — tested with a second
+   server instance (`WLHL_SOCKET` override) and dummy rooms.
+2. ✅ **Fork chat emit** (webliero-simple-panel 1405c2e; RTDB dual-write kept).
+3. ✅ **ext-proxy: hosts CRUD + hostlogs proxy + panel Server-log tab**
+   (ext-proxy aa95ac4).
+4. ✅ **ext-proxy: createroom/stop + grant perms + picker Create-room form**
+   (same commit). End-to-end verified against a live test host.
+5. Later: panel chat tab reads from the host API when the room has a host;
+   then drop the fork's RTDB chat write. Also later: room "restart with new
+   token" flow (stop keeps settings; relaunch just needs a fresh token).
+
+## Deploy notes
+
+- wlhl: rebuild + restart with `--http 127.0.0.1:8091 --http-token …
+  --data-dir … --profiles-dir <dir-with-default/> [--log-file …]`; put a
+  tunnel (cloudflared) in front; `default` profile = the room script set for
+  panel-created rooms (e.g. a webliero-simple-panel checkout — `_conf.js` is
+  replaced by the generated CONFIG).
+- ext-proxy: set `ROOM_FIREBASE_WEB_JSON` (the fork's CONFIG.firebase block)
+  in fly secrets, then register the host under /admin → "Room hosts".
