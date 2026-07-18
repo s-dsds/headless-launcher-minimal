@@ -51,10 +51,13 @@ instance run beside a live one).
 - `GET /api/rooms` → `[{id, code, link, registered}]`
 - `POST /api/rooms` `{id, token, profile, conf}` → launch. `profile` names a
   subdirectory of `--profiles-dir`; its `*.js` run in **alphabetical order**
-  (the fork's `_`/`z_` prefix convention). `conf` is an object materialized as
-  `const CONFIG = {...};` and injected **first**, replacing any `_conf.js` in
-  the profile. No arbitrary code crosses the API — callers pick a named
-  profile and parameters only.
+  (the fork's `_`/`z_` prefix convention). CONFIG = the profile's optional
+  `_conf.defaults.json` (host-local settings — e.g. the firebase web-SDK
+  block — live on the host, next to the scripts that need them) overlaid with
+  the API's `conf` (caller wins per top-level key), materialized as
+  `const CONFIG = {...};` injected **first**, replacing any `_conf.js`. No
+  arbitrary code crosses the API — callers pick a named profile and
+  parameters only.
 - `DELETE /api/rooms/{id}` → stop.
 - `GET /api/rooms/{id}/logs?tail=N` (text/plain) → last N lines from the
   room's in-memory ring buffer (2000 lines kept; N capped at 1000). Bounded
@@ -125,6 +128,8 @@ the ring lives in `--log-file`.
   --data-dir … --profiles-dir <dir-with-default/> [--log-file …]`; put a
   tunnel (cloudflared) in front; `default` profile = the room script set for
   panel-created rooms (e.g. a webliero-simple-panel checkout — `_conf.js` is
-  replaced by the generated CONFIG).
-- ext-proxy: set `ROOM_FIREBASE_WEB_JSON` (the fork's CONFIG.firebase block)
-  in fly secrets, then register the host under /admin → "Room hosts".
+  replaced by the generated CONFIG; add `_conf.defaults.json` with the
+  firebase web-SDK block + any host-local defaults).
+- ext-proxy: register the host under /admin → "Room hosts". (No firebase env
+  needed — the host profile's `_conf.defaults.json` carries the firebase
+  web-SDK block.)
