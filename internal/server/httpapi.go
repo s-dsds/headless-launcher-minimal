@@ -185,20 +185,38 @@ func (s *Server) apiCreateRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 // profileScripts resolves a profile directory into an ordered script list.
-// *.js run in alphabetical order (the fork's `_`/`z_` prefix convention). A
-// conf object replaces any _conf.js and is injected first.
+// *.js run in alphabetical order (the fork's `_`/`z_` prefix convention).
+//
+// CONFIG assembly: an optional `_conf.defaults.json` in the profile provides
+// the base (host-local settings like the firebase web-SDK block — they live
+// HERE, next to the scripts that need them, so callers such as ext-proxy never
+// have to know them). The API's conf object is overlaid on top (caller wins,
+// per top-level key). The merged object is materialized as
+// `const CONFIG = {...}` injected first, replacing any _conf.js.
 func (s *Server) profileScripts(profile string, conf map[string]any, roomID string) ([]string, error) {
 	dir := filepath.Join(s.profilesDir, profile)
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("unknown profile %q", profile)
 	}
+
+	merged := map[string]any{}
+	if b, err := os.ReadFile(filepath.Join(dir, "_conf.defaults.json")); err == nil {
+		if err := json.Unmarshal(b, &merged); err != nil {
+			return nil, fmt.Errorf("profile %q _conf.defaults.json: %w", profile, err)
+		}
+	}
+	for k, v := range conf {
+		merged[k] = v
+	}
+	genConf := len(merged) > 0
+
 	var files []string
 	for _, e := range ents {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".js") {
 			continue
 		}
-		if conf != nil && e.Name() == "_conf.js" {
+		if genConf && e.Name() == "_conf.js" {
 			continue // replaced by the generated conf below
 		}
 		files = append(files, filepath.Join(dir, e.Name()))
@@ -208,8 +226,8 @@ func (s *Server) profileScripts(profile string, conf map[string]any, roomID stri
 	}
 	sort.Strings(files)
 
-	if conf != nil {
-		cj, err := json.MarshalIndent(conf, "", "  ")
+	if genConf {
+		cj, err := json.MarshalIndent(merged, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("conf: %w", err)
 		}
