@@ -16,15 +16,22 @@ options below to keep durable, rotated history.
 
 ## Recommended (cross-platform): built-in rotated log file
 
-The portable answer that works identically on Linux, Windows and macOS is for
-`wlhl` to write its own rotating file — no OS supervisor required.
+The portable answer that works identically on Linux, Windows and macOS is
+`wlhl`'s own rotating file — no OS supervisor or rotation tooling required:
 
-> Status: not yet implemented. Proposed flags (via `gopkg.in/natefinch/lumberjack`):
-> `--log-file <path>` `--log-max-size <MB>` `--log-max-backups <n>` `--log-max-age <days>`.
-> Ask and this can be wired in — it's a small change and removes the reliance
-> on shell redirection / OS-specific tooling below.
+```bash
+wlhl server --chrome-path /tmp/chrome-wrap.sh \
+  --log-file /var/log/wlhl/wlhl.log \
+  --log-max-size 50 \        # rotate at 50 MB (default)
+  --log-max-backups 5        # keep wlhl.log.1 … .5 (default)
+```
 
-Until then, pick the per-platform option that matches where you run.
+Output is **teed**: it still goes to stderr (so systemd/NSSM/interactive runs
+see it) *and* to the rotated file. Rotation is rename-based
+(`wlhl.log` → `wlhl.log.1` → `.2` …) and Windows-safe.
+
+The per-platform options below are still useful for auto-restart/supervision,
+but with `--log-file` none of them is needed just for durable logs.
 
 ---
 

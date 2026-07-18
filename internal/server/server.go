@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"headless-launcher-go/internal/ipc"
+	"headless-launcher-go/internal/logfile"
 )
 
 // Server manages Chrome and the IPC socket.
@@ -27,9 +29,31 @@ type Server struct {
 	listener net.Listener
 }
 
+// LogConfig configures the server's built-in rotating log file. Path "" means
+// stdout/stderr only (the pre-existing behaviour).
+type LogConfig struct {
+	Path    string
+	MaxMB   int
+	Backups int
+}
+
 // StartServer launches Chrome and starts the IPC server.
-func StartServer(show bool, chromePath string) error {
+func StartServer(show bool, chromePath string, logCfg LogConfig) error {
 	_ = godotenv.Load()
+
+	// Built-in rotating log file: the portable answer for durable logs on
+	// platforms without systemd/journald (Windows, mac). Tee to stderr as well
+	// so supervisors (systemd/NSSM) and interactive runs still see output.
+	if logCfg.Path != "" {
+		lw, err := logfile.New(logCfg.Path, logCfg.MaxMB, logCfg.Backups)
+		if err != nil {
+			return fmt.Errorf("log file: %w", err)
+		}
+		defer lw.Close()
+		log.SetOutput(io.MultiWriter(os.Stderr, lw))
+		log.Println("logging to", logCfg.Path,
+			fmt.Sprintf("(rotate at %dMB, keep %d)", logCfg.MaxMB, logCfg.Backups))
+	}
 
 	chromeExecPath := os.Getenv("CHROME_EXECPATH")
 	if chromePath != "" {

@@ -37,18 +37,28 @@ func init() {
 
 var serverShow bool
 var serverChromePath string
+var serverLogFile string
+var serverLogMaxMB int
+var serverLogBackups int
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Starts the headless chromium browser and waits for cli commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return server.StartServer(serverShow, serverChromePath)
+		return server.StartServer(serverShow, serverChromePath, server.LogConfig{
+			Path:    serverLogFile,
+			MaxMB:   serverLogMaxMB,
+			Backups: serverLogBackups,
+		})
 	},
 }
 
 func init() {
 	serverCmd.Flags().BoolVar(&serverShow, "show", false, "Show the browser window (non headless mode)")
 	serverCmd.Flags().StringVar(&serverChromePath, "chrome-path", "", "A path to a chromium executable to use")
+	serverCmd.Flags().StringVar(&serverLogFile, "log-file", "", "Also write logs to this file, with built-in size rotation (portable: no systemd/NSSM needed)")
+	serverCmd.Flags().IntVar(&serverLogMaxMB, "log-max-size", 50, "Rotate the log file when it reaches this many MB")
+	serverCmd.Flags().IntVar(&serverLogBackups, "log-max-backups", 5, "How many rotated log files to keep")
 }
 
 // --- launch ---
