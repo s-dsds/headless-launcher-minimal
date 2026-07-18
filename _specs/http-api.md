@@ -128,12 +128,7 @@ the ring lives in `--log-file`.
 
 ## Deploy notes
 
-- wlhl: rebuild + restart with `--http 127.0.0.1:8091 --http-token …
-  --data-dir … --profiles-dir <dir-with-default/> [--log-file …]`; put a
-  tunnel (cloudflared) in front; `default` profile = the room script set for
-  panel-created rooms (e.g. a webliero-simple-panel checkout — `_conf.js` is
-  replaced by the generated CONFIG; add `_conf.defaults.json` with the
-  firebase web-SDK block + any host-local defaults).
-- ext-proxy: register the host under /admin → "Room hosts". (No firebase env
-  needed — the host profile's `_conf.defaults.json` carries the firebase
-  web-SDK block.)
+**See `HOSTING.md`** for the full walkthrough: wlhl flags, the `default`
+profile + `_conf.defaults.json`, tunnel setup with worked ngrok and
+cloudflared examples (static domains, service installs), registering the
+host in /admin, linking existing rooms, and troubleshooting.
