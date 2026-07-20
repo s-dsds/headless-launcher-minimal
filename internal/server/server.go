@@ -18,6 +18,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"headless-launcher-go/internal/chatstore"
+	"headless-launcher-go/internal/gamestore"
 	"headless-launcher-go/internal/ipc"
 	"headless-launcher-go/internal/logfile"
 )
@@ -34,6 +35,8 @@ type Server struct {
 
 	// HTTP API state (httpapi.go); zero-valued when the API is disabled.
 	chatStore   *chatstore.Store
+	gameStore   *gamestore.Store
+	queueStates sync.Map // map[roomID]json.RawMessage — latest @@QUEUE@@ per room
 	profilesDir string
 	maxRooms    int
 	startedAt   time.Time
@@ -122,6 +125,23 @@ func (s *Server) LaunchRoom(id, token, headlessScript string, scripts []string, 
 			}
 		})
 	}
+	if s.gameStore != nil {
+		rp.SetGameSink(func(payload string) {
+			if err := s.gameStore.Append(id, payload); err != nil {
+				log.Printf(`"%s": gamestore: %v`, id, err) // log + drop, never fatal
+			}
+		})
+	}
+	// Live queue state: keep the latest snapshot per room and push it over the
+	// host link immediately (spec: game-history.md §5 — the imperceptible path).
+	rp.SetQueueSink(func(payload string) {
+		if !json.Valid([]byte(payload)) || len(payload) > 16<<10 {
+			log.Printf(`"%s": queue: invalid/oversized payload dropped`, id)
+			return
+		}
+		s.queueStates.Store(id, json.RawMessage(payload))
+		s.PushLinkEvent("queue", map[string]interface{}{"room": id, "state": json.RawMessage(payload)})
+	})
 	if attach != nil {
 		attach(rp)
 	}
@@ -257,6 +277,7 @@ func StartServer(show bool, chromePath string, logCfg LogConfig, apiCfg APIConfi
 	if apiCfg.Addr != "" || apiCfg.LinkURL != "" {
 		if apiCfg.DataDir != "" {
 			srv.chatStore = chatstore.New(apiCfg.DataDir)
+			srv.gameStore = gamestore.New(apiCfg.DataDir)
 		}
 		srv.apiMux = srv.buildAPIMux()
 	}

@@ -32,6 +32,8 @@ type RoomPage struct {
 	recent    []LogLine
 	recentPos int
 
+	gameSink  func(payload string) // "@@GAME@@ {...}" → gamestore
+	queueSink func(payload string) // "@@QUEUE@@ {...}" → live queue state
 	// chatSink receives the JSON payload of structured "@@CHAT@@ {...}" console
 	// lines (set by the server when a chat store is configured).
 	chatSink func(payload string)
@@ -50,11 +52,31 @@ const recentCap = 2000
 // chatMarker prefixes structured chat lines emitted by the room script.
 const chatMarker = "@@CHAT@@ "
 
+// gameMarker prefixes structured game-end records (spec: game-history.md §1).
+const gameMarker = "@@GAME@@ "
+
+// queueMarker prefixes live queue-state snapshots (spec: game-history.md §5).
+const queueMarker = "@@QUEUE@@ "
+
 // SetChatSink registers the receiver for structured chat payloads.
 func (rp *RoomPage) SetChatSink(fn func(payload string)) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
 	rp.chatSink = fn
+}
+
+// SetGameSink registers the receiver for structured game-end payloads.
+func (rp *RoomPage) SetGameSink(fn func(payload string)) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	rp.gameSink = fn
+}
+
+// SetQueueSink registers the receiver for live queue-state payloads.
+func (rp *RoomPage) SetQueueSink(fn func(payload string)) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	rp.queueSink = fn
 }
 
 // TailLogs returns up to n recent log lines, oldest first.
@@ -168,12 +190,20 @@ func (rp *RoomPage) log(msg string) {
 	fns := make([]func(string), len(rp.logFuncs))
 	copy(fns, rp.logFuncs)
 	sink := rp.chatSink
+	gsink := rp.gameSink
+	qsink := rp.queueSink
 	rp.mu.Unlock()
 
-	// Structured chat line → the chat store (the raw line still goes to the
-	// normal log below: logs stay the ground truth, the store is the index).
+	// Structured lines → their stores (the raw line still goes to the normal
+	// log below: logs stay the ground truth, the stores are the index).
 	if sink != nil && strings.HasPrefix(msg, chatMarker) {
 		sink(strings.TrimPrefix(msg, chatMarker))
+	}
+	if gsink != nil && strings.HasPrefix(msg, gameMarker) {
+		gsink(strings.TrimPrefix(msg, gameMarker))
+	}
+	if qsink != nil && strings.HasPrefix(msg, queueMarker) {
+		qsink(strings.TrimPrefix(msg, queueMarker))
 	}
 
 	for _, fn := range fns {

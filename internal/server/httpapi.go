@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"headless-launcher-go/internal/gamestore"
 )
 
 var apiRoomIDRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -120,6 +122,58 @@ func (s *Server) buildAPIMux() *http.ServeMux {
 			msgs = []json.RawMessage{}
 		}
 		writeAPI(w, map[string]any{"date": date, "messages": msgs})
+	})
+
+	// Game history (gamestore, spec: game-history.md §3). limit is
+	// double-capped: gamestore clamps to 150 so a full page stays under the
+	// proxy's 512KB response cap.
+	mux.HandleFunc("GET /api/rooms/{id}/games", func(w http.ResponseWriter, r *http.Request) {
+		if s.gameStore == nil {
+			apiError(w, http.StatusServiceUnavailable, "game store disabled")
+			return
+		}
+		q := r.URL.Query()
+		before, _ := strconv.ParseInt(q.Get("beforeId"), 10, 64)
+		games, next, err := s.gameStore.Query(r.PathValue("id"), gamestore.QueryOpts{
+			BeforeID: before,
+			Limit:    clampInt(q.Get("limit"), 50, 1, 150),
+			Auth:     q.Get("auth"),
+			Map:      q.Get("map"),
+			N:        clampInt(q.Get("n"), 0, 0, 64),
+		})
+		if err != nil {
+			apiError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if games == nil {
+			games = []gamestore.Game{}
+		}
+		writeAPI(w, map[string]any{"games": games, "nextBefore": next})
+	})
+
+	mux.HandleFunc("GET /api/rooms/{id}/games/player/{auth}", func(w http.ResponseWriter, r *http.Request) {
+		if s.gameStore == nil {
+			apiError(w, http.StatusServiceUnavailable, "game store disabled")
+			return
+		}
+		since, _ := strconv.ParseInt(r.URL.Query().Get("sinceTs"), 10, 64)
+		sum, err := s.gameStore.PlayerSummary(r.PathValue("id"), r.PathValue("auth"), since)
+		if err != nil {
+			apiError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeAPI(w, sum)
+	})
+
+	// Live queue snapshot (fallback for link-less hosts; the link pushes the
+	// same state as an event the moment it changes).
+	mux.HandleFunc("GET /api/rooms/{id}/queue", func(w http.ResponseWriter, r *http.Request) {
+		if v, ok := s.queueStates.Load(r.PathValue("id")); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(v.(json.RawMessage))
+			return
+		}
+		apiError(w, http.StatusNotFound, "no queue state for this room")
 	})
 
 	return mux
