@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"headless-launcher-go/internal/gamestore"
 	"headless-launcher-go/internal/ipc"
 	"headless-launcher-go/internal/server"
 )
@@ -32,6 +33,7 @@ func init() {
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(followCmd)
 	rootCmd.AddCommand(statsCmd)
+	rootCmd.AddCommand(gamesCmd)
 }
 
 // --- server ---
@@ -97,6 +99,38 @@ func init() {
 	serverCmd.Flags().StringVar(&serverLinkURL, "link", "", "Outbound host link to ext-proxy (e.g. wss://ext-proxy.fly.dev/hostlink) — replaces the tunnel (or env WLHL_LINK_URL)")
 	serverCmd.Flags().StringVar(&serverLinkToken, "link-token", "", "Host token for the link, minted in ext-proxy /admin (or env WLHL_LINK_TOKEN)")
 	serverCmd.Flags().StringVar(&serverLinkName, "link-name", "", "Display name for this host in /admin (default: hostname)")
+}
+
+// --- games (history store maintenance) ---
+
+var gamesDataDir string
+
+var gamesCmd = &cobra.Command{
+	Use:   "games",
+	Short: "Game-history store maintenance (SQLite, see _specs/game-history.md)",
+}
+
+var gamesBackupCmd = &cobra.Command{
+	Use:   "backup <room> <dest.db>",
+	Short: "Write a consistent snapshot of a room's game history (safe while the server runs)",
+	Long: "Copies <data-dir>/games/<room>.db to <dest.db> via SQLite VACUUM INTO.\n" +
+		"Safe against a live server: WAL read-consistency + busy_timeout mean this\n" +
+		"second connection never corrupts or blocks the capture writer.",
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		st := gamestore.New(gamesDataDir)
+		defer st.Close()
+		if err := st.Backup(cmd.Context(), args[0], args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("backed up %s game history to %s\n", args[0], args[1])
+		return nil
+	},
+}
+
+func init() {
+	gamesCmd.PersistentFlags().StringVar(&gamesDataDir, "data-dir", "wlhl-data", "Root data directory (same as the server's --data-dir)")
+	gamesCmd.AddCommand(gamesBackupCmd)
 }
 
 // --- launch ---

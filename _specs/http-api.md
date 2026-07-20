@@ -65,6 +65,39 @@ instance run beside a live one).
 - `GET /api/rooms/{id}/chat/dates` → `["YYYYMMDD", …]`
 - `GET /api/rooms/{id}/chat?date=YYYYMMDD&limit=200&before=<ts>` → newest-first
   page of `{ts, name, auth, msg}` from the local store.
+- `GET /api/rooms/{id}/chat/search?q=&limit=&beforeDay=` → cross-day substring
+  search over name/auth/msg → `{messages, scannedTo}` (pass `scannedTo` back as
+  the next `beforeDay`).
+- `GET /api/rooms/{id}/games?limit=50&beforeId=&auth=&map=&n=` → newest-first
+  page of per-game history from the SQLite game store →
+  `{games:[{id,ts,map,n,durationMs,winner,partial,players:[…]}], nextBefore}`.
+  `limit` is capped at **150** so a full page stays under ext-proxy's 512KB
+  response cap; `auth` filters one player's games; `n=2` = duels only.
+  (Spec: `_specs/game-history.md`.)
+- `GET /api/rooms/{id}/games/player/{auth}?sinceTs=` → mergeable aggregate
+  `{games, kills, deaths, scoreSum, wins, durationMsSum, firstTs, lastTs}`
+  (shapes chosen to merge losslessly across regions).
+- `GET /api/rooms/{id}/queue` → the room's latest live queue snapshot
+  `{playing:[{name}], queue:[{name}], updatedAt}` (arena rooms; 404 until the
+  room emits one). Poll fallback for tunnel-only hosts — link hosts push the
+  same state as a `queue` event the instant it changes.
+
+### Game store
+
+The fork's z_stats emits one `@@GAME@@ {json}` console line per finished game;
+wlhl stores it in `<data-dir>/games/<roomId>.db` (SQLite via modernc.org/
+sqlite — pure Go, WAL; **data-dir must be local disk**, WAL is unsafe on
+SMB/network shares). Backups: `wlhl games backup <room> <dest.db>` (VACUUM
+INTO — safe while the server runs). The arena plugin's `@@QUEUE@@` lines feed
+the in-memory queue snapshot + link push.
+
+### Host link (spec: `_specs/host-link.md`)
+
+`--link wss://ext-proxy…/hostlink --link-token <host token>` replaces the
+tunnel: wlhl dials OUT, auto-registers via a hello frame, and answers the same
+API over correlation-id frames dispatched into the same mux (the link is the
+authenticated channel — a link-only host needs no `--http` listener at all).
+The tunnel remains a supported fallback; both can coexist.
 
 ### Chat store
 
