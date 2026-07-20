@@ -23,7 +23,9 @@ import (
 var apiRoomIDRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 var profileNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func (s *Server) startHTTP(cfg APIConfig) error {
+// buildAPIMux constructs the API routes once; both the HTTP listener (bearer-
+// guarded) and the host link (the link IS the auth) dispatch into it.
+func (s *Server) buildAPIMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +122,11 @@ func (s *Server) startHTTP(cfg APIConfig) error {
 		writeAPI(w, map[string]any{"date": date, "messages": msgs})
 	})
 
-	handler := requireBearer(cfg.Token, mux)
+	return mux
+}
+
+func (s *Server) startHTTP(cfg APIConfig) error {
+	handler := requireBearer(cfg.Token, s.apiMux)
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler,

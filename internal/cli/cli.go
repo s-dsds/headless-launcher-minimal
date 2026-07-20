@@ -46,6 +46,9 @@ var serverHTTPToken string
 var serverDataDir string
 var serverProfilesDir string
 var serverMaxRooms int
+var serverLinkURL string
+var serverLinkToken string
+var serverLinkName string
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
@@ -54,6 +57,14 @@ var serverCmd = &cobra.Command{
 		token := serverHTTPToken
 		if token == "" {
 			token = os.Getenv("WLHL_API_TOKEN")
+		}
+		linkURL := serverLinkURL
+		if linkURL == "" {
+			linkURL = os.Getenv("WLHL_LINK_URL")
+		}
+		linkToken := serverLinkToken
+		if linkToken == "" {
+			linkToken = os.Getenv("WLHL_LINK_TOKEN")
 		}
 		return server.StartServer(serverShow, serverChromePath, server.LogConfig{
 			Path:    serverLogFile,
@@ -65,6 +76,9 @@ var serverCmd = &cobra.Command{
 			DataDir:     serverDataDir,
 			ProfilesDir: serverProfilesDir,
 			MaxRooms:    serverMaxRooms,
+			LinkURL:     linkURL,
+			LinkToken:   linkToken,
+			LinkName:    serverLinkName,
 		})
 	},
 }
@@ -80,6 +94,9 @@ func init() {
 	serverCmd.Flags().StringVar(&serverDataDir, "data-dir", "wlhl-data", "Root directory for the local chat store")
 	serverCmd.Flags().StringVar(&serverProfilesDir, "profiles-dir", "", "Directory of room profiles (subdir of *.js per profile) for API room creation; empty disables creation")
 	serverCmd.Flags().IntVar(&serverMaxRooms, "max-rooms", 4, "Cap on concurrently running rooms (webliero.com allows 4 per IP)")
+	serverCmd.Flags().StringVar(&serverLinkURL, "link", "", "Outbound host link to ext-proxy (e.g. wss://ext-proxy.fly.dev/hostlink) — replaces the tunnel (or env WLHL_LINK_URL)")
+	serverCmd.Flags().StringVar(&serverLinkToken, "link-token", "", "Host token for the link, minted in ext-proxy /admin (or env WLHL_LINK_TOKEN)")
+	serverCmd.Flags().StringVar(&serverLinkName, "link-name", "", "Display name for this host in /admin (default: hostname)")
 }
 
 // --- launch ---

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sort"
 	"sync"
@@ -25,7 +26,7 @@ import (
 type Server struct {
 	browserCtx     context.Context
 	browserCancel  context.CancelFunc
-	pages          sync.Map // map[string]*RoomPage
+	pages          sync.Map   // map[string]*RoomPage
 	launchMu       sync.Mutex // serializes the dup-check + cap + slot reservation in LaunchRoom
 	headlessScript string
 
@@ -36,6 +37,12 @@ type Server struct {
 	profilesDir string
 	maxRooms    int
 	startedAt   time.Time
+
+	// Host link (hostlink.go): the API mux shared by the HTTP listener and the
+	// link dispatcher, and the current link's send function (nil = link down).
+	apiMux   *http.ServeMux
+	linkMu   sync.Mutex
+	linkSend func(*linkFrame) error
 }
 
 // RoomInfo is the API/ls view of a running room.
@@ -166,6 +173,13 @@ type APIConfig struct {
 	DataDir     string // chat store root
 	ProfilesDir string // room profiles for API-driven creation ("" = creation disabled)
 	MaxRooms    int    // concurrent room cap (webliero.com allows 4 per IP)
+
+	// Host link (hostlink.go): outbound persistent connection to ext-proxy —
+	// replaces the tunnel. Independent of Addr: a link-only host needs no HTTP
+	// listener at all.
+	LinkURL   string // wss://ext-proxy.fly.dev/hostlink ("" = link disabled)
+	LinkToken string // the host token minted in ext-proxy /admin
+	LinkName  string // display name in /admin (default: hostname)
 }
 
 // StartServer launches Chrome and starts the IPC server.
@@ -238,21 +252,33 @@ func StartServer(show bool, chromePath string, logCfg LogConfig, apiCfg APIConfi
 	}
 
 	// Optional HTTP API: local chat store + bounded log tails + room lifecycle
-	// for the admin panel (reached through an operator-managed tunnel).
+	// for the admin panel. Reached through an operator-managed tunnel (Addr)
+	// and/or the outbound host link (LinkURL) — both dispatch into one mux.
+	if apiCfg.Addr != "" || apiCfg.LinkURL != "" {
+		if apiCfg.DataDir != "" {
+			srv.chatStore = chatstore.New(apiCfg.DataDir)
+		}
+		srv.apiMux = srv.buildAPIMux()
+	}
 	if apiCfg.Addr != "" {
 		if apiCfg.Token == "" {
 			allocCancel()
 			browserCancel()
 			return fmt.Errorf("--http requires --http-token (or WLHL_API_TOKEN)")
 		}
-		if apiCfg.DataDir != "" {
-			srv.chatStore = chatstore.New(apiCfg.DataDir)
-		}
 		if err := srv.startHTTP(apiCfg); err != nil {
 			allocCancel()
 			browserCancel()
 			return err
 		}
+	}
+	if apiCfg.LinkURL != "" {
+		if apiCfg.LinkToken == "" {
+			allocCancel()
+			browserCancel()
+			return fmt.Errorf("--link requires --link-token (or WLHL_LINK_TOKEN)")
+		}
+		srv.startLink(apiCfg)
 	}
 
 	socketPath := ipc.SocketPath()

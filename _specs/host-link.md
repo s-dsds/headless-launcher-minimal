@@ -72,15 +72,18 @@ wlhl gains a link client (`internal/hostlink`):
 
       {type:"hello", proto:1, name, version, maxRooms, rooms:[RoomInfo], startedAt}
 
-- ext-proxy authenticates the token against the hosts collection (lookup by
-  SHA-256 of the token — add a `key_index`-style map or simply iterate the tiny
-  hosts list), marks the host **online**, stores the hello info + lastSeen in
+- ext-proxy authenticates the token against the hosts collection (iterate the
+  tiny hosts list with a constant-time compare — tokens are stored plaintext
+  today, so no hash index; hashing-at-rest would be a separate migration),
+  marks the host **online**, stores the hello info + lastSeen in
   memory, and mirrors `{online, lastSeen, version}` onto the host doc
   (debounced, e.g. 60 s) so /admin shows it.
 
 ### RPC over the link
 
-One JSON frame protocol, correlation-id multiplexed:
+One JSON frame protocol, correlation-id multiplexed (the proxy keeps a
+pending map[id]chan; every in-flight call selects on the link's close signal so
+a dying socket fails calls fast instead of burning the 15s timeout):
 
     proxy → host: {type:"req",  id:"r42", method:"GET", path:"/api/rooms/qmpanel/logs?tail=200"}
                   {type:"req",  id:"r43", method:"POST", path:"/api/rooms", body:{…}}
@@ -88,7 +91,9 @@ One JSON frame protocol, correlation-id multiplexed:
     host → proxy: {type:"event", event:"rooms", rooms:[…]}        // push, unsolicited
 
 The **path-based framing is deliberate**: wlhl dispatches an incoming `req` into
-its OWN existing HTTP mux via an in-process round-trip
+its OWN existing HTTP mux — the UN-WRAPPED mux, not the requireBearer handler:
+the link is the pre-authenticated channel, and this also lets a link-only host
+run with no --http listener/token at all. Dispatch is an in-process round-trip
 (`httptest.NewRecorder` + `mux.ServeHTTP`). Zero endpoint logic is duplicated —
 the HTTP API stays the single source of truth, the link is just a second
 transport for it. Same bearer check can even be skipped (the link itself is the
