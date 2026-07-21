@@ -46,6 +46,10 @@ func (s *Server) buildAPIMux() *http.ServeMux {
 		writeAPI(w, rooms)
 	})
 
+	mux.HandleFunc("GET /api/profiles", func(w http.ResponseWriter, r *http.Request) {
+		writeAPI(w, map[string]any{"profiles": s.listProfiles()})
+	})
+
 	mux.HandleFunc("POST /api/rooms", s.apiCreateRoom)
 
 	mux.HandleFunc("DELETE /api/rooms/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -328,6 +332,54 @@ func (s *Server) profileScripts(profile string, conf map[string]any, roomID stri
 		files = append([]string{f.Name()}, files...)
 	}
 	return files, nil
+}
+
+// profileInfo describes one launchable profile for the room-creation UI.
+type profileInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// listProfiles enumerates s.profilesDir subdirectories that contain at least
+// one .js script — the same "has scripts" gate profileScripts enforces.
+// description is the first line of an optional README.txt, else "".
+func (s *Server) listProfiles() []profileInfo {
+	if s.profilesDir == "" {
+		return []profileInfo{}
+	}
+	ents, err := os.ReadDir(s.profilesDir)
+	if err != nil {
+		return []profileInfo{}
+	}
+	profiles := []profileInfo{}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(s.profilesDir, e.Name())
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		hasJS := false
+		for _, f := range files {
+			if !f.IsDir() && strings.HasSuffix(f.Name(), ".js") {
+				hasJS = true
+				break
+			}
+		}
+		if !hasJS {
+			continue
+		}
+		desc := ""
+		if b, err := os.ReadFile(filepath.Join(dir, "README.txt")); err == nil {
+			line, _, _ := strings.Cut(string(b), "\n")
+			desc = strings.TrimSpace(line)
+		}
+		profiles = append(profiles, profileInfo{Name: e.Name(), Description: desc})
+	}
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+	return profiles
 }
 
 // --- plumbing ---
