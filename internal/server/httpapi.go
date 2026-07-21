@@ -356,6 +356,11 @@ func (s *Server) listProfiles() []profileInfo {
 		if !e.IsDir() {
 			continue
 		}
+		// Only names the create endpoint would accept — a dir with a space/dot
+		// would render in the picker and then fail "invalid profile name".
+		if !profileNameRe.MatchString(e.Name()) {
+			continue
+		}
 		dir := filepath.Join(s.profilesDir, e.Name())
 		files, err := os.ReadDir(dir)
 		if err != nil {
@@ -372,8 +377,12 @@ func (s *Server) listProfiles() []profileInfo {
 			continue
 		}
 		desc := ""
-		if b, err := os.ReadFile(filepath.Join(dir, "README.txt")); err == nil {
-			line, _, _ := strings.Cut(string(b), "\n")
+		if f, err := os.Open(filepath.Join(dir, "README.txt")); err == nil {
+			// bounded read: only the first line matters, never slurp a huge file
+			buf := make([]byte, 512)
+			n, _ := f.Read(buf)
+			f.Close()
+			line, _, _ := strings.Cut(string(buf[:n]), "\n")
 			desc = strings.TrimSpace(line)
 		}
 		profiles = append(profiles, profileInfo{Name: e.Name(), Description: desc})
