@@ -1,8 +1,42 @@
 # Hosting: connecting a wlhl server to the admin panel
 
 How to expose a `wlhl server` to ext-proxy so the panel gets server logs,
-host-side chat (with search), and room create/stop. Architecture + API:
-`_specs/http-api.md`.
+host-side chat (with search), match history, room create/stop and live queue
+push. Architecture + API: `_specs/http-api.md`.
+
+## 0. The host link (RECOMMENDED — no tunnel at all)
+
+Since 2026-07-20 wlhl can dial ext-proxy directly and keep one authenticated
+WebSocket open; ext-proxy sends its requests back down that pipe (spec:
+`_specs/host-link.md`). No tunnel daemon, no URL to register or re-edit, no
+DNS — survives IP changes and reboots by re-dialing (1s→60s backoff).
+
+```
+panel (browser) → ext-proxy (fly.dev) ⇐[host link, dialed by wlhl]⇒ wlhl
+```
+
+1. In ext-proxy `/admin` → Hosts → create the host. Leave the **URL empty**;
+   set a strong token. (The token IS the host's identity.)
+2. Run wlhl with the link (no `--http` listener needed at all):
+
+```bash
+wlhl server \
+  --link wss://ext-proxy.fly.dev/hostlink \
+  --link-token <the host token> \
+  --link-name myserver \
+  --data-dir /var/lib/wlhl \
+  --profiles-dir /etc/wlhl/profiles
+# or env: WLHL_LINK_URL / WLHL_LINK_TOKEN
+```
+
+3. `/admin` shows the host **online** with lastSeen/version the moment it
+   connects. Done — everything below (tunnels) is the LEGACY/fallback path,
+   still fully supported; a host may have both (the link is preferred, the
+   tunnel URL is used when the link is down).
+
+---
+
+Legacy topology (tunnel):
 
 ```
 panel (browser) → ext-proxy (fly.dev) → [tunnel] → wlhl --http 127.0.0.1:8091
