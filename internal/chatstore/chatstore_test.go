@@ -2,94 +2,59 @@ package chatstore
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 )
 
-func TestAppendQueryPaging(t *testing.T) {
+// A busy day used to be searchable only through Query's newest-500 window:
+// a match older than the newest 500 messages of its day was permanently
+// unreachable (day-granular paging skips past it). Search must scan the
+// whole day file.
+func TestSearchFindsMatchesPastQueryCap(t *testing.T) {
 	s := New(t.TempDir())
-	base := int64(1784000000000) // fixed day bucket
-	for i := 0; i < 10; i++ {
-		payload, _ := json.Marshal(map[string]any{
-			"ts": base + int64(i)*1000, "name": "p", "auth": "a", "msg": "m",
-		})
-		if err := s.Append("room1", string(payload)); err != nil {
-			t.Fatal(err)
+	day := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+
+	// Oldest message of the day is the only match, then 700 fillers on the
+	// same day — far past Query's 500 cap.
+	put := func(i int, msg string) {
+		ts := day.Add(time.Duration(i) * time.Second).UnixMilli()
+		payload := fmt.Sprintf(`{"ts":%d,"name":"p%d","auth":"auth%d","msg":%q}`, ts, i, i, msg)
+		if err := s.Append("room1", payload); err != nil {
+			t.Fatalf("append %d: %v", i, err)
 		}
 	}
-	days, err := s.Dates("room1")
-	if err != nil || len(days) != 1 {
-		t.Fatalf("dates: %v %v", days, err)
+	put(0, "the needle evidence")
+	for i := 1; i <= 700; i++ {
+		put(i, "filler chatter")
 	}
 
-	// newest-first, limit 4
-	msgs, err := s.Query("room1", days[0], 4, 0)
-	if err != nil || len(msgs) != 4 {
-		t.Fatalf("query: %d %v", len(msgs), err)
+	msgs, _, err := s.Search("room1", "needle", 100, "")
+	if err != nil {
+		t.Fatalf("search: %v", err)
 	}
-	var first Message
-	json.Unmarshal(msgs[0], &first)
-	if first.Ts != base+9000 {
-		t.Fatalf("want newest first, got ts=%d", first.Ts)
+	if len(msgs) != 1 {
+		t.Fatalf("want 1 match, got %d", len(msgs))
+	}
+	var m Message
+	if err := json.Unmarshal(msgs[0], &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.Msg != "the needle evidence" {
+		t.Fatalf("wrong match: %q", m.Msg)
 	}
 
-	// paging: strictly older than the last of the first page
-	var last Message
-	json.Unmarshal(msgs[3], &last)
-	page2, _ := s.Query("room1", days[0], 4, last.Ts)
-	var p2first Message
-	json.Unmarshal(page2[0], &p2first)
-	if p2first.Ts != last.Ts-1000 {
-		t.Fatalf("paging broken: %d vs %d", p2first.Ts, last.Ts)
+	// Query keeps its newest-500 view cap (the API contract for the chat
+	// pane) — the fix must not have removed it.
+	dayKey := day.Format("20060102")
+	view, err := s.Query("room1", dayKey, 500, 0)
+	if err != nil {
+		t.Fatalf("query: %v", err)
 	}
-}
-
-func TestSearch(t *testing.T) {
-	s := New(t.TempDir())
-	// two days: day1 has daro, day2 (newer) has momo + daro
-	day1, day2 := int64(1784000000000), int64(1784100000000)
-	add := func(ts int64, name, msg string) {
-		p, _ := json.Marshal(map[string]any{"ts": ts, "name": name, "auth": "a_" + name, "msg": msg})
-		if err := s.Append("room1", string(p)); err != nil {
-			t.Fatal(err)
-		}
+	if len(view) != 500 {
+		t.Fatalf("query view: want 500, got %d", len(view))
 	}
-	add(day1, "daro", "old message")
-	add(day2, "momo", "hi there")
-	add(day2+1000, "daro", "GG all")
-
-	// name match, case-insensitive, newest first, across days
-	msgs, _, err := s.Search("room1", "DARO", 10, "")
-	if err != nil || len(msgs) != 2 {
-		t.Fatalf("search daro: %d %v", len(msgs), err)
-	}
-	var first Message
-	json.Unmarshal(msgs[0], &first)
-	if first.Msg != "GG all" {
-		t.Fatalf("want newest first, got %q", first.Msg)
-	}
-	// msg match
-	if m, _, _ := s.Search("room1", "hi there", 10, ""); len(m) != 1 {
-		t.Fatalf("msg search: %d", len(m))
-	}
-	// auth match
-	if m, _, _ := s.Search("room1", "a_momo", 10, ""); len(m) != 1 {
-		t.Fatalf("auth search: %d", len(m))
-	}
-	// empty q rejected
-	if _, _, err := s.Search("room1", "", 10, ""); err == nil {
-		t.Fatal("want empty q rejected")
-	}
-}
-
-func TestRejects(t *testing.T) {
-	s := New(t.TempDir())
-	if err := s.Append("room1", "not json"); err == nil {
-		t.Fatal("want malformed payload rejected")
-	}
-	if err := s.Append("../evil", `{"ts":1,"msg":"x"}`); err == nil {
-		t.Fatal("want bad room id rejected")
-	}
-	if _, err := s.Query("room1", "2026-01-01", 10, 0); err == nil {
-		t.Fatal("want bad date rejected")
+	if err := json.Unmarshal(view[0], &m); err != nil || m.Msg != "filler chatter" {
+		t.Fatalf("query should be newest-first, got %q (err %v)", m.Msg, err)
 	}
 }

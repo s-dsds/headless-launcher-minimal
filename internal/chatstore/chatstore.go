@@ -133,7 +133,10 @@ func (s *Store) Search(roomID, q string, limit int, beforeDay string) (msgs []js
 		}
 		scanned++
 		scannedTo = day
-		dayMsgs, err := s.Query(roomID, day, 500, 0) // newest-first within the day
+		// Full day file, not Query: Query caps at the newest 500 messages, and
+		// a busy day's older overflow would be silently unsearchable — paging
+		// is day-granular, so those messages could never be reached at all.
+		dayMsgs, err := s.readDayAll(roomID, day)
 		if err != nil {
 			continue
 		}
@@ -142,8 +145,9 @@ func (s *Store) Search(roomID, q string, limit int, beforeDay string) (msgs []js
 		// scanned before we advance past it — breaking mid-day would strand its
 		// older matches, unreachable on the next page. The outer len>=limit check
 		// stops us before opening a NEW day, so over-return is bounded by one
-		// day's match count.
-		for _, raw := range dayMsgs {
+		// day's match count. Iterate newest-first to keep result order.
+		for i := len(dayMsgs) - 1; i >= 0; i-- {
+			raw := dayMsgs[i]
 			var m Message
 			if json.Unmarshal(raw, &m) != nil {
 				continue
@@ -170,6 +174,38 @@ func (s *Store) Query(roomID, date string, limit int, beforeTs int64) ([]json.Ra
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
+	all, err := s.readDayAll(roomID, date)
+	if err != nil {
+		return nil, err
+	}
+	var kept []json.RawMessage
+	for _, raw := range all {
+		if beforeTs > 0 {
+			var m Message
+			if json.Unmarshal(raw, &m) != nil {
+				continue
+			}
+			if m.Ts >= beforeTs {
+				continue
+			}
+		}
+		kept = append(kept, raw)
+	}
+	// File is append-ordered (oldest→newest): keep the newest `limit`, reversed.
+	if len(kept) > limit {
+		kept = kept[len(kept)-limit:]
+	}
+	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+		kept[i], kept[j] = kept[j], kept[i]
+	}
+	return kept, nil
+}
+
+// readDayAll streams one day file and returns EVERY message, oldest→newest,
+// uncapped. Day files are bounded (one room-day of chat) — a linear read is
+// fine; callers that need a view cap apply it themselves (Query), while
+// Search must see the whole day.
+func (s *Store) readDayAll(roomID, date string) ([]json.RawMessage, error) {
 	dir, err := s.roomDir(roomID)
 	if err != nil {
 		return nil, err
@@ -183,30 +219,18 @@ func (s *Store) Query(roomID, date string, limit int, beforeTs int64) ([]json.Ra
 	}
 	defer f.Close()
 
-	// Day files are bounded (one room-day of chat) — a linear read is fine.
-	var kept []json.RawMessage
+	var out []json.RawMessage
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		raw := sc.Bytes()
-		var m Message
-		if json.Unmarshal(raw, &m) != nil {
+		if !json.Valid(raw) {
 			continue
 		}
-		if beforeTs > 0 && m.Ts >= beforeTs {
-			continue
-		}
-		kept = append(kept, json.RawMessage(append([]byte(nil), raw...)))
+		out = append(out, json.RawMessage(append([]byte(nil), raw...)))
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	// File is append-ordered (oldest→newest): keep the newest `limit`, reversed.
-	if len(kept) > limit {
-		kept = kept[len(kept)-limit:]
-	}
-	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-		kept[i], kept[j] = kept[j], kept[i]
-	}
-	return kept, nil
+	return out, nil
 }
