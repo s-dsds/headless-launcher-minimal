@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -315,12 +316,32 @@ func StartServer(show bool, chromePath string, logCfg LogConfig, apiCfg APIConfi
 	srv.listener = ln
 	log.Println("IPC server listening on", socketPath)
 
-	// Accept loop
+	// Chromium dying (OOM, segfault) kills every tab context but used to leave
+	// this process running with zombie rooms listed as alive. Exit non-zero
+	// instead so a supervisor (systemd Restart=) brings everything back;
+	// without a supervisor a dead server is still more honest than a zombie.
+	// Registered after every startup error path — from here on the only way
+	// browserCtx dies is chromium itself going down.
+	go func() {
+		<-browserCtx.Done()
+		log.Println("FATAL: chromium browser context died — exiting so a supervisor can restart wlhl")
+		os.Exit(1)
+	}()
+
+	// Accept loop. Transient errors (EMFILE under fd pressure, ECONNABORTED)
+	// must not take down every hosted room — retry with a short pause and
+	// only stop when the listener itself is gone. Exiting on a still-live
+	// listener previously returned nil (exit 0), so a restart-on-failure
+	// supervisor would not even bring the server back.
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println("accept error:", err)
-			break
+			if errors.Is(err, net.ErrClosed) {
+				break
+			}
+			log.Println("accept error (retrying):", err)
+			time.Sleep(time.Second)
+			continue
 		}
 		go srv.handleConnection(ipc.NewConn(conn))
 	}

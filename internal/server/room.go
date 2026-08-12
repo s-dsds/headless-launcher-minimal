@@ -264,6 +264,15 @@ func resolveRemoteObject(obj *cdpruntime.RemoteObject) string {
 func (rp *RoomPage) LoadHeadless(scriptPath string) error {
 	rp.log("Loading headless...")
 
+	if scriptPath == "" {
+		// Loud on purpose: before the hack-split, hacked was the default, so a
+		// pre-split launch config that never passed --script now silently gets
+		// a vanilla client — room scripts relying on injected hooks (__ReadPNG,
+		// @@GAME@@/@@QUEUE@@ history emission) break at runtime with no launch
+		// error. Vanilla stays a valid choice; it just must be visible.
+		rp.log("WARNING: no --script / HEADLESS_SCRIPT — serving webliero's VANILLA client (no interception hooks; scripts needing a modified client will fail)")
+	}
+
 	if scriptPath != "" {
 		scriptContents, err := os.ReadFile(scriptPath)
 		if err != nil {

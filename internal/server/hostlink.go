@@ -66,7 +66,14 @@ func (s *Server) startLink(cfg APIConfig) {
 	go func() {
 		backoff := linkBackoffStart
 		for {
+			start := time.Now()
 			err := s.runLinkOnce(cfg.LinkURL, cfg.LinkToken, name, cfg.MaxRooms)
+			// A connection that stayed up a while means the outage is new —
+			// restart the backoff ladder instead of carrying doubles from
+			// disconnects that happened days ago.
+			if time.Since(start) >= time.Minute {
+				backoff = linkBackoffStart
+			}
 			// jittered backoff: 0.5x..1.5x
 			d := backoff/2 + time.Duration(rand.Int63n(int64(backoff)))
 			log.Printf("[link] disconnected (%v) — redialing in %s", err, d.Round(time.Second))
@@ -167,6 +174,19 @@ func (s *Server) runLinkOnce(url, token, name string, maxRooms int) error {
 		}
 		go func(f linkFrame) {
 			defer func() { <-sem }()
+			// ServeHTTP is called in-process here, so net/http's per-connection
+			// panic recovery doesn't apply — a handler panic must cost one
+			// frame, not the whole server (and every room with it).
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[link] panic serving %s %s: %v", f.Method, f.Path, r)
+					resp := &linkFrame{Type: "resp", ID: f.ID, Status: http.StatusInternalServerError}
+					resp.Body, _ = json.Marshal(map[string]string{"error": "internal error"})
+					if err := writeFrame(resp); err != nil {
+						log.Printf("[link] write resp %s: %v", f.ID, err)
+					}
+				}
+			}()
 			resp := s.serveLinkRequest(&f)
 			if err := writeFrame(resp); err != nil {
 				log.Printf("[link] write resp %s: %v", f.ID, err)
@@ -194,7 +214,15 @@ func (s *Server) serveLinkRequest(f *linkFrame) *linkFrame {
 	if len(f.Body) > 0 {
 		body = strings.NewReader(string(f.Body))
 	}
-	req := httptest.NewRequest(f.Method, f.Path, body)
+	// http.NewRequest, not httptest.NewRequest: the test helper PANICS on an
+	// invalid method or unparsable path, and both come off the wire here — a
+	// malformed frame must produce a 400 frame, not kill every hosted room.
+	req, err := http.NewRequest(f.Method, f.Path, body)
+	if err != nil {
+		resp.Status = http.StatusBadRequest
+		resp.Body, _ = json.Marshal(map[string]string{"error": "malformed request frame: " + err.Error()})
+		return resp
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
