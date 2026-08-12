@@ -95,12 +95,15 @@ func splitOnFormFeed(data []byte, atEOF bool) (advance int, token []byte, err er
 	return 0, nil, nil
 }
 
-// SocketPath returns the default node-ipc socket path.
+// SocketPath returns the IPC socket path.
 func SocketPath() string {
 	// Overridable so a second instance (e.g. testing a new build) can run
 	// beside a live server without stealing its socket.
 	if p := os.Getenv("WLHL_SOCKET"); p != "" {
 		return p
 	}
-	return "/tmp/app.wlserver"
+	// -go suffix: the TS launcher owns /tmp/app.wlserver (node-ipc id
+	// 'wlserver'), and both servers unlink the socket on startup — a shared
+	// default meant whichever started second silently stole the other's CLI.
+	return "/tmp/app.wlserver-go"
 }
