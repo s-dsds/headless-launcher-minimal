@@ -206,6 +206,10 @@ Notes:
   description in the panel's room-creation picker (GET /api/profiles).
 - Match history / live queue need `--data-dir` (SQLite per room) and reach the
   panel over the link automatically.
+- Optional RTDB nodes for flavor/permissions (`motd` welcome-line list,
+  `eastereggs` per-auth join announcements, `vips` camera spectators exempt
+  from the AFK purge, `admins/<auth>.hidden`): see the fork's
+  `_specs/social-nodes.md`.
 
 **Updating room scripts: RESTART the room, never hot-reload.** Hot-reload
 leaves `onPlayerActivity`/`onPlayerKicked` unchained, which silently corrupts
