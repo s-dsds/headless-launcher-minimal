@@ -184,6 +184,7 @@ An arena room is just a profile: a webliero-simple-panel checkout whose
 {
   "firebase": { "apiKey": "…", "databaseURL": "https://liero-1t.firebaseio.com",
                 "projectId": "liero-1t", "storageBucket": "liero-1t.appspot.com" },
+  "baseRoomName": "arena",
   "gameMode": "lms",
   "plugins": {
     "announcer": { "enabled": true },
@@ -194,6 +195,9 @@ An arena room is just a profile: a webliero-simple-panel checkout whose
 ```
 
 Notes:
+- `baseRoomName` moves the room's RTDB subtree off the default `simple/`
+  (fork ≥ f5b47ae). If set, also set the same value in the room's `rtdbBase`
+  field in ext-proxy `/admin` so the panel reads the same subtree.
 - Plugins are strict opt-in: a profile without a `plugins` block runs a plain
   room even though the plugin files are present.
 - `maxGames` (win-streak cap before the winner rotates out, 0 = unlimited) is
