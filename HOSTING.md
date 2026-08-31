@@ -172,6 +172,51 @@ Then:
   picker page. The webliero headless token is pasted per-creation, used once
   for registration, never stored.
 
+## Arena rooms (ranked 1v1 ladder)
+
+An arena room is just a profile: a webliero-simple-panel checkout whose
+`_conf.defaults.json` enables the arena plugin and — **required** — sets
+`gameMode` to `lms` (the ladder's rank/ELO logic is built on LMS lives;
+`_init.js` defaults to `dm`, which leaves ELO/h2h/streaks inert):
+
+```json
+// wlhl-profiles/arena/_conf.defaults.json
+{
+  "firebase": { "apiKey": "…", "databaseURL": "https://liero-1t.firebaseio.com",
+                "projectId": "liero-1t", "storageBucket": "liero-1t.appspot.com" },
+  "gameMode": "lms",
+  "plugins": {
+    "announcer": { "enabled": true },
+    "newjohn":   { "enabled": true },
+    "arena":     { "enabled": true, "maxGames": 3 }
+  }
+}
+```
+
+Notes:
+- Plugins are strict opt-in: a profile without a `plugins` block runs a plain
+  room even though the plugin files are present.
+- `maxGames` (win-streak cap before the winner rotates out, 0 = unlimited) is
+  tunable live from the panel's Plugins tab; the JSON is only the boot value.
+- Give the profile dir a `README.txt` — its first line becomes the profile's
+  description in the panel's room-creation picker (GET /api/profiles).
+- Match history / live queue need `--data-dir` (SQLite per room) and reach the
+  panel over the link automatically.
+
+**Updating room scripts: RESTART the room, never hot-reload.** Hot-reload
+leaves `onPlayerActivity`/`onPlayerKicked` unchained, which silently corrupts
+the AFK/leaver stats (the room logs a loud warning when it detects this).
+Stop + recreate through the panel is the supported path.
+
+## Upgrading wlhl on a live server
+
+- Restarting `wlhl server` kills every room it hosts — schedule accordingly.
+- The IPC socket moved to `/tmp/app.wlserver-go` (so the legacy TS launcher can
+  coexist). Upgrade the server binary and the CLI **together**; anything
+  pinned to the old path needs `WLHL_SOCKET`.
+- wlhl now **exits(1) when chromium dies** instead of limping on. Run it under
+  a supervisor, e.g. systemd with `Restart=always` (`RestartSec=5`).
+
 ## Troubleshooting
 
 - `host unreachable` on test → tunnel down, or quick-tunnel URL rotated:
