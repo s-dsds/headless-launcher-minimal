@@ -222,7 +222,9 @@ Notes:
      (implies the shared stats root; `statsRoomId` remains as a finer
      override). Note: this means grants on the secondary govern the shared
      config — an owner decision.
-  3. Same `groupId` on both room docs → match history merges across hosts.
+  3. Same `groupId` on both room docs → match history merges across hosts,
+     and the stats page's live QUEUE widget shows every group room side by
+     side (waiting list + upcoming maps per region, one notification watch).
 - Optional RTDB nodes for flavor/permissions (`motd` welcome-line list,
   `eastereggs` per-auth join announcements, `vips` camera spectators exempt
   from the AFK purge, `admins/<auth>.hidden`): see the fork's
