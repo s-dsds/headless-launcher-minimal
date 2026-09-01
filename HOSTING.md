@@ -206,14 +206,23 @@ Notes:
   description in the panel's room-creation picker (GET /api/profiles).
 - Match history / live queue need `--data-dir` (SQLite per room) and reach the
   panel over the link automatically.
-- **Two-region setup**: each region is its OWN room id with its own RTDB
-  subtree (never share a full namespace — meta/poolstate/live/poolctl would
-  clobber and race). Share only the ladder: set `"stats_room_id": "<primary
-  room id>"` in the secondary's `_conf.defaults.json` (write side, fork
-  ≥ stats_room_id commit) AND `statsRoomId` on its ext-proxy room doc (read
-  side, PATCH /admin/rooms/<id>). Give both rooms the same `groupId` on
-  their room docs so match history merges across hosts. `stats/live` stays
-  per-room by design (game-history.md §4).
+- **Multi-region, single shared tree**: each region is its OWN room id, but
+  everything that IS the arena lives once, under the primary room's subtree —
+  settings, pool, poolbounds/poolmode, weapons, mod, admins, vips/eastereggs/
+  motd, moderation (a ban lands in every region), leagues catalog + active
+  pointer, and the whole ladder (one ELO/ranking). Only per-instance runtime
+  nodes stay on each room (meta/join link, poolstate cursor, poolctl,
+  stats/live, plugins, leaguestate). Setup:
+  1. Secondary's `_conf.defaults.json`: `"primary_room_id": "<primary id>"`
+     (+ optionally `"region": "eu"` / `"na"` on BOTH profiles — adds
+     per-region W/L/K/D splits under `stats/players/<auth>/regions/<region>`
+     while the ladder stays global).
+  2. Secondary's ext-proxy room doc: `configRoomId: "<primary id>"`
+     (PATCH /admin/rooms/<id>) — its panel then edits the shared tree
+     (implies the shared stats root; `statsRoomId` remains as a finer
+     override). Note: this means grants on the secondary govern the shared
+     config — an owner decision.
+  3. Same `groupId` on both room docs → match history merges across hosts.
 - Optional RTDB nodes for flavor/permissions (`motd` welcome-line list,
   `eastereggs` per-auth join announcements, `vips` camera spectators exempt
   from the AFK purge, `admins/<auth>.hidden`): see the fork's
