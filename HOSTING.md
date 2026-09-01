@@ -206,6 +206,14 @@ Notes:
   description in the panel's room-creation picker (GET /api/profiles).
 - Match history / live queue need `--data-dir` (SQLite per room) and reach the
   panel over the link automatically.
+- **Two-region setup**: each region is its OWN room id with its own RTDB
+  subtree (never share a full namespace — meta/poolstate/live/poolctl would
+  clobber and race). Share only the ladder: set `"stats_room_id": "<primary
+  room id>"` in the secondary's `_conf.defaults.json` (write side, fork
+  ≥ stats_room_id commit) AND `statsRoomId` on its ext-proxy room doc (read
+  side, PATCH /admin/rooms/<id>). Give both rooms the same `groupId` on
+  their room docs so match history merges across hosts. `stats/live` stays
+  per-room by design (game-history.md §4).
 - Optional RTDB nodes for flavor/permissions (`motd` welcome-line list,
   `eastereggs` per-auth join announcements, `vips` camera spectators exempt
   from the AFK purge, `admins/<auth>.hidden`): see the fork's
