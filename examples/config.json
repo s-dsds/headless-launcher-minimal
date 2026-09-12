@@ -1,0 +1,10 @@
+{
+  "rooms": [
+    {
+      "id": "myroom",
+      "scripts": ["room.js"],
+      "tokenEnv": "WEBLIERO_TOKEN",
+      "autostart": false
+    }
+  ]
+}

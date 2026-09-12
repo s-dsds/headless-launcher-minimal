@@ -1,0 +1,44 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: go.sum
+      - name: Check formatting
+        shell: bash
+        run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Browser integration (local fixture, no WebLiero token)
+        shell: bash
+        env:
+          WLHL_BROWSER_TEST: '1'
+        run: go test -v ./internal/... -run "TestBrowserSmoke|TestPanelBrowser" -count=1
+      - name: Build executable
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          suffix=""
+          if [ "$RUNNER_OS" = Windows ]; then suffix=".exe"; fi
+          mkdir -p dist
+          go build -trimpath -o "dist/wlhl$suffix" ./cmd/wlhl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wlhl-${{ runner.os }}-amd64
+          path: dist/*
+          if-no-files-found: error
