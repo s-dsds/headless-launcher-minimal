@@ -1,48 +1,63 @@
-# Build wlhl release binaries on tag push (v*).
-# All deps (chromedp, cobra) are pure Go, so CGO_ENABLED=0 cross-compiles
-# cleanly for every target. Chrome itself is a runtime dependency on the host.
-name: release
-
+name: Release
 on:
   push:
-    tags: ["v*"]
-
+    tags: ['v*']
 permissions:
-  contents: write # create the release + upload assets
-
+  contents: read
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Build all targets
+          go-version: '1.25.x'
+          cache-dependency-path: go.sum
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Browser integration
+        env:
+          WLHL_BROWSER_TEST: '1'
+        run: go test -v ./internal/... -run "TestBrowserSmoke|TestPanelBrowser" -count=1
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: go.sum
+      - name: Package Linux and Windows binaries
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          CGO_ENABLED: '0'
         run: |
           mkdir -p dist
-          build() { # os arch suffix
-            echo "building $1/$2"
-            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
-              go build -trimpath -ldflags "-s -w" \
-              -o "dist/wlhl-$1-$2$3" ./cmd/wlhl
-          }
-          build linux   amd64 ""
-          build linux   arm64 ""
-          build linux   arm   ""      # 32-bit (older Pi-class boxes)
-          build windows amd64 ".exe"
-          build darwin  amd64 ""
-          build darwin  arm64 ""      # Apple Silicon
-          (cd dist && sha256sum * > SHA256SUMS)
-          ls -l dist
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*
-          generate_release_notes: true
+          for target in linux-amd64 linux-arm64 windows-amd64; do
+            os="${target%-*}"
+            arch="${target#*-}"
+            suffix=""
+            if [ "$os" = windows ]; then suffix=".exe"; fi
+            dir="dist/wlhl-$target"
+            mkdir -p "$dir"
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" -o "$dir/wlhl$suffix" ./cmd/wlhl
+            cp README.md UPSTREAM.md "$dir/"
+            cp -r examples "$dir/"
+            if [ "$os" = windows ]; then
+              (cd dist && zip -r "wlhl-$target.zip" "wlhl-$target")
+            else
+              tar -czf "dist/wlhl-$target.tar.gz" -C dist "wlhl-$target"
+            fi
+          done
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
+      - name: Publish release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_VERSION" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --verify-tag --generate-notes

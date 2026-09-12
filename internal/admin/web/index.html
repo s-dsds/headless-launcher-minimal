@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WebLiero · Room control</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><div><p class="eyebrow">WEBLIERO / HEADLESS</p><h1>Room control</h1></div><span class="badge">Local administration</span></header>
+<main>
+<form id="login"><h2>Connect to your launcher</h2><p>Paste the admin token printed by <code>wlhl server</code>. This is separate from your WebLiero room token.</p><label for="token">Admin token</label><div class="credentials"><input id="token" type="password" autocomplete="off" required><button>Connect</button></div></form>
+<section id="dashboard" hidden><div class="toolbar"><p id="summary" aria-live="polite"></p><button id="logout" class="secondary">Disconnect</button></div><div id="rooms"></div></section>
+<p id="error" role="alert"></p>
+<footer>One browser, one tab per room. Scripts run in the order listed in your configuration.</footer>
+</main>
+</body></html>

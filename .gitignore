@@ -1,2 +1,6 @@
 /wlhl
-.idea/
+/wlhl.exe
+/dist/
+/config.json
+/.env
+/.idea/
