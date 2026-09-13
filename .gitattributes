@@ -1,0 +1,2 @@
+# Keep source and workflow formatting identical on Windows and Linux.
+* text=auto eol=lf

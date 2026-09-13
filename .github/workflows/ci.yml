@@ -20,7 +20,12 @@ jobs:
           cache-dependency-path: go.sum
       - name: Check formatting
         shell: bash
-        run: test -z "$(gofmt -l cmd internal)"
+        run: |
+          files="$(gofmt -l cmd internal)"
+          if [ -n "$files" ]; then
+            printf 'Files needing gofmt:\n%s\n' "$files"
+            exit 1
+          fi
       - run: go vet ./...
       - run: go test -race ./...
       - name: Browser integration (local fixture, no WebLiero token)
