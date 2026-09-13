@@ -20,7 +20,7 @@ func TestBrowserSmoke(t *testing.T) {
 	}
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><script>window.WLInit = function() {};</script></html>`))
+		w.Write([]byte(`<html><script>window.WLInit = function(options) { window.initCalls = (window.initCalls || 0) + 1; return {options}; };</script></html>`))
 	}))
 	defer site.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -38,13 +38,13 @@ func TestBrowserSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	if err := p.Load("fixture-token", []Script{
+	if err := p.Load("fixture-token", Profile{Name: "Chosen name", Settings: Settings{MaxPlayers: 7, Public: true, Password: "test-password"}, Scripts: []Script{
 		{Name: "first.js", Source: `new Promise(resolve => setTimeout(() => {window.order = ['first']; resolve();}, 50))`},
 		{Name: "second.js", Source: `if (window.order.join() !== 'first' || window.WLTOKEN !== 'fixture-token') throw new Error('ordering/token failed'); window.order.push('second'); console.log('ORDER_OK');`},
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Run([]Script{{Name: "verify.js", Source: `if (window.order.join() !== 'first,second') throw new Error('state lost');`}}); err != nil {
+	if err := p.Run([]Script{{Name: "verify.js", Source: `if (window.order.join() !== 'first,second') throw new Error('state lost'); if (WLROOM.options.roomName !== 'Chosen name' || WLROOM.options.maxPlayers !== 7 || WLROOM.options.password !== 'test-password' || WLROOM.options.token !== 'fixture-token') throw new Error('settings ignored');`}}); err != nil {
 		t.Fatal(err)
 	}
 	other, err := b.NewPage(func(string) {})
@@ -52,7 +52,15 @@ func TestBrowserSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer other.Close()
-	if err := other.Load("", []Script{{Source: `if (window.order !== undefined) throw new Error('tabs share globals');`}}); err != nil {
+	if err := other.Load("", Profile{Name: "Other", Settings: Settings{MaxPlayers: 12}, Scripts: []Script{{Source: `if (window.order !== undefined) throw new Error('tabs share globals');`}}}); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := b.NewPage(func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	if err := legacy.Load("fresh", Profile{Name: "Panel name", Settings: Settings{MaxPlayers: 8}, ScriptCreatesRoom: true, Scripts: []Script{{Name: "legacy.js", Source: `var room = WLInit({roomName:'Old',token:'stale',maxPlayers:30,public:true,extra:'kept'}); if (room.options.roomName !== 'Panel name' || room.options.token !== 'fresh' || room.options.maxPlayers !== 8 || room.options.public !== false || room.options.extra !== 'kept' || window.initCalls !== 1) throw new Error('legacy settings override failed');`}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Run([]Script{{Name: "failure.js", Source: `Promise.reject(new Error('expected failure'))`}}); err == nil {
@@ -108,7 +116,7 @@ func TestLiveWebLiero(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	if err := p.Load(token, []Script{{Name: "live-smoke.js", Source: `var room = WLInit({token:window.WLTOKEN,roomName:'Launcher verification',maxPlayers:2,public:false}); room.onRoomLink = link => console.log(link); room.onCaptcha = () => console.log('TEST_CAPTCHA');`}}); err != nil {
+	if err := p.Load(token, Profile{Name: "Launcher verification", Settings: Settings{MaxPlayers: 2}, ScriptCreatesRoom: true, Scripts: []Script{{Name: "live-smoke.js", Source: `var room = WLInit({token:window.WLTOKEN,roomName:'Launcher verification',maxPlayers:2,public:false}); room.onRoomLink = link => console.log(link); room.onCaptcha = () => console.log('TEST_CAPTCHA');`}}}); err != nil {
 		t.Fatal("headless load failed:", strings.ReplaceAll(err.Error(), token, "[REDACTED]"))
 	}
 	select {
