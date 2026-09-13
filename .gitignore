@@ -4,3 +4,6 @@
 /config.json
 /.env
 /.idea/
+
+/rooms.json
+/.rooms-*.tmp

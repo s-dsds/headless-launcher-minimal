@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -36,19 +37,19 @@ func run(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
 		fmt.Println(`WebLiero minimal launcher
 
-  wlhl server [--config config.json] [--listen 127.0.0.1:8787]
+  wlhl server [--data rooms.json] [--listen 127.0.0.1:8787]
               [--chrome-path PATH] [--show]
   wlhl ls
-  wlhl start ROOM
+  wlhl start ROOM   (prompts for a fresh room token)
   wlhl stop ROOM
-  wlhl restart ROOM
-  wlhl run ROOM FILE.js [FILE.js ...]
+  wlhl restart ROOM (prompts for a fresh room token)
+  wlhl run ROOM FILE_OR_DIRECTORY [...]
   wlhl logs ROOM [--follow]
   wlhl version
 
 Client commands use WLHL_URL (default http://127.0.0.1:8787) and
 WLHL_ADMIN_TOKEN. Server generates an admin token if none is set.
-Room profiles and ordered scripts are configured in config.json.`)
+Add and edit rooms in the web panel. Saved rooms are restored stopped.`)
 		return nil
 	}
 	if args[0] == "version" {
@@ -63,7 +64,7 @@ Room profiles and ordered scripts are configured in config.json.`)
 
 func serve(args []string) error {
 	f := flag.NewFlagSet("server", flag.ContinueOnError)
-	configPath := f.String("config", "config.json", "room configuration file")
+	configPath := f.String("data", "rooms.json", "saved room storage (managed by the panel)")
 	listen := f.String("listen", "127.0.0.1:8787", "loopback admin address")
 	chrome := f.String("chrome-path", os.Getenv("CHROME_EXECPATH"), "Chrome/Chromium executable")
 	show := f.Bool("show", false, "show browser for troubleshooting")
@@ -100,20 +101,12 @@ func serve(args []string) error {
 		return err
 	}
 	m := launcher.NewManager(c, browser.NewPage)
+	m.SetStorage(*configPath)
 	defer func() { browser.Close(); m.Close() }()
 	server := &http.Server{Handler: admin.Handler(m, token, listener.Addr().String()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 100 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	fmt.Printf("Admin panel: http://%s\nAdmin token: %s\n", listener.Addr(), token)
-	go func() {
-		for _, p := range c.Rooms {
-			if p.Autostart {
-				if err := m.Action(p.ID, "start", nil); err != nil {
-					fmt.Fprintf(os.Stderr, "autostart %s: %v\n", p.ID, err)
-				}
-			}
-		}
-	}()
 	var serveErr error
 	select {
 	case <-ctx.Done():
@@ -234,7 +227,16 @@ func client(args []string) error {
 		}
 	}
 	if (command == "start" || command == "stop" || command == "restart") && len(args) == 2 {
-		_, err := request(ctx, "POST", "rooms/"+url.PathEscape(args[1])+"/"+command, nil)
+		var body []byte
+		if command != "stop" {
+			fmt.Fprint(os.Stderr, "Paste WebLiero room token: ")
+			input, err := bufio.NewReader(os.Stdin).ReadString('\n')
+			if err != nil && err != io.EOF {
+				return err
+			}
+			body, _ = json.Marshal(map[string]string{"token": strings.TrimSpace(input)})
+		}
+		_, err := request(ctx, "POST", "rooms/"+url.PathEscape(args[1])+"/"+command, body)
 		if err == nil {
 			fmt.Println("OK")
 		}

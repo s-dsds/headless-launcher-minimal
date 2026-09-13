@@ -20,7 +20,7 @@ remain intact. Runtime dependencies retain their respective licenses.
 
 The current implementation replaces the upstream IPC, external integrations,
 stores, custom-client interception, and native bindings with a small Go runtime,
-configuration file, authenticated loopback HTTP API, embedded web panel, and CLI.
+automatically saved room definitions, authenticated loopback HTTP API, embedded web panel, and CLI.
 It retains the browser model: shared Chrome process, independent room tabs,
 official `https://www.webliero.com/headless`, `WLInit`, `window.WLTOKEN`, console
 logging, and ordered JavaScript evaluation.
@@ -30,14 +30,13 @@ it does not maintain a second Node runtime implementation.
 
 ## Migration
 
-| Previous workflow | Minimal fork |
-| --- | --- |
-| `server`, then `launch --id ID --token TOKEN` | Add a profile with `tokenEnv`, set that environment variable, run `server`, then `start ID` |
-| `launch script1.js script2.js` | Put the ordered files in the profile's `scripts` array |
-| `run ID FILE...` | Same workflow; the client reads and uploads these files |
-| `ls`, `stop ID` | Same commands, authenticated over loopback HTTP |
-| `follow ID` | `logs ID --follow` |
-| `--script`, `HEADLESS_SCRIPT`, patched client hooks | Removed; scripts must use the vanilla headless API |
-| Host-link registration, ext-proxy, game/chat stores | Removed |
+Create rooms in the panel with a name, settings, and files or an entire script
+folder. Enable “My scripts call WLInit” for existing initializer scripts.
+Supply a WebLiero token at each start/restart; no room-token environment variables
+or autostart configuration are used. Definitions and uploaded script contents are
+saved automatically. See README.md for the current workflow.
 
-No production room scripts or credentials were copied from the workspace.
+`ls`, `stop`, `run`, and `logs --follow` remain available in the CLI.
+Client interception, host-link registration, ext-proxy, and game/chat stores
+remain removed. No production room scripts or credentials were copied from the
+workspace.

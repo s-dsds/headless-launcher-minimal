@@ -15,7 +15,7 @@ import (
 const HeadlessURL = "https://www.webliero.com/headless"
 
 type Page interface {
-	Load(string, []Script) error
+	Load(string, Profile) error
 	Run([]Script) error
 	Close()
 	Done() <-chan struct{}
@@ -117,7 +117,7 @@ type browserPage struct {
 func (p *browserPage) Done() <-chan struct{} { return p.ctx.Done() }
 func (p *browserPage) Close()                { p.cancel() }
 
-func (p *browserPage) Load(token string, scripts []Script) error {
+func (p *browserPage) Load(token string, profile Profile) error {
 	ctx, cancel := context.WithTimeout(p.ctx, 45*time.Second)
 	defer cancel()
 	encoded, _ := json.Marshal(token)
@@ -128,7 +128,27 @@ func (p *browserPage) Load(token string, scripts []Script) error {
 	); err != nil {
 		return fmt.Errorf("load headless page: %w", err)
 	}
-	return p.run(ctx, scripts)
+	settings, _ := json.Marshal(map[string]any{"roomName": profile.Name, "maxPlayers": profile.Settings.MaxPlayers, "public": profile.Settings.Public, "password": profile.Settings.Password})
+	bootstrap := `(function(settings, scriptCreatesRoom) {
+  const original = window.WLInit;
+  let created = false;
+  window.WLInit = function(options) {
+   if (created) throw new Error('Room already created. Enable "My scripts call WLInit" for existing room scripts.');
+   const selected = Object.assign({}, options || {}, settings, {token:window.WLTOKEN});
+   if (!selected.password) selected.password = null;
+   const room = original.call(window, selected);
+   created = true;
+   window.WLROOM = room;
+   room.onRoomLink = link => console.log(link);
+   room.onCaptcha = () => console.error('Token rejected. Stop the room and start with a fresh token.');
+   return room;
+  };
+  if (!scriptCreatesRoom) window.WLInit({});
+ })(` + string(settings) + `,` + fmt.Sprint(profile.ScriptCreatesRoom) + `);`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(bootstrap, nil)); err != nil {
+		return fmt.Errorf("initialize room: %w", err)
+	}
+	return p.run(ctx, profile.Scripts)
 }
 
 func (p *browserPage) Run(scripts []Script) error {

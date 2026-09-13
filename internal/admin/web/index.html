@@ -5,8 +5,29 @@
 <header><div><p class="eyebrow">WEBLIERO / HEADLESS</p><h1>Room control</h1></div><span class="badge">Local administration</span></header>
 <main>
 <form id="login"><h2>Connect to your launcher</h2><p>Paste the admin token printed by <code>wlhl server</code>. This is separate from your WebLiero room token.</p><label for="token">Admin token</label><div class="credentials"><input id="token" type="password" autocomplete="off" required><button>Connect</button></div></form>
-<section id="dashboard" hidden><div class="toolbar"><p id="summary" aria-live="polite"></p><button id="logout" class="secondary">Disconnect</button></div><div id="rooms"></div></section>
+<section id="dashboard" hidden>
+<div class="toolbar"><p id="summary" aria-live="polite"></p><div class="actions"><button id="add-room">Add room</button><button id="logout" class="secondary">Disconnect</button></div></div>
+<div id="empty" hidden><h2>Your rooms belong here</h2><p>Add a room, choose your scripts, and paste a WebLiero token when you’re ready to start.</p></div><div id="rooms"></div>
+</section>
 <p id="error" role="alert"></p>
-<footer>One browser, one tab per room. Scripts run in the order listed in your configuration.</footer>
+<footer>Rooms and scripts are saved automatically. Each start asks for a room token.</footer>
 </main>
+<dialog id="editor">
+<form id="room-form">
+<div class="room-heading"><h2 id="editor-title">Add room</h2><button type="button" id="editor-close" class="secondary" aria-label="Close room editor">Close</button></div>
+<label for="room-name">Room name</label><input id="room-name" required maxlength="120" placeholder="Friday night arena">
+<div class="fields"><div><label for="max-players">Maximum players</label><input id="max-players" type="number" min="1" max="32" value="12" required></div><div><label for="room-password">Room password (optional)</label><input id="room-password" type="password" autocomplete="new-password" maxlength="128"></div></div>
+<label class="check"><input id="room-public" type="checkbox"> List this room publicly</label>
+<fieldset><legend>Scripts</legend>
+<p class="help">Choose files or a whole folder. Only JavaScript files are imported, sorted by path. Move them into execution order below. Selecting the same name replaces its saved copy.</p>
+<div class="pickers"><label class="picker">Choose files<input id="script-files" type="file" accept=".js" multiple></label><label class="picker">Choose folder<input id="script-folder" type="file" webkitdirectory multiple></label><button id="clear-scripts" type="button" class="secondary">Clear list</button></div>
+<p id="script-count" class="help" aria-live="polite"></p><ol id="script-list"></ol>
+<label class="check"><input id="script-creates" type="checkbox"> My scripts call <code>WLInit</code></label>
+<p class="help">For existing room scripts, enable this option: the name, settings, and token above take precedence. Otherwise the launcher creates the room first; scripts can use <code>window.WLROOM</code>.</p>
+</fieldset>
+<label for="create-token">WebLiero token (for starting now)</label><input id="create-token" type="password" autocomplete="off" maxlength="4096" placeholder="Paste a fresh room token">
+<p class="help">Used for this launch only, never saved. <a href="https://www.webliero.com/headlesstoken" target="_blank" rel="noopener noreferrer">Get a token ↗</a></p>
+<p id="editor-error" role="alert"></p><div class="actions"><button type="submit" value="start">Save &amp; start</button><button type="submit" value="save" class="secondary">Save for later</button></div>
+</form></dialog>
+<dialog id="start-dialog"><form id="start-form"><h2 id="start-title">Start room</h2><label for="start-token">Fresh WebLiero token</label><input id="start-token" type="password" autocomplete="off" maxlength="4096" required><p class="help">The saved scripts and settings will be used. Tokens are never reused automatically. You can paste the same token again when testing if WebLiero still accepts it.</p><p id="start-error" role="alert"></p><div class="actions"><button type="submit">Start room</button><button id="start-cancel" type="button" class="secondary">Cancel</button></div></form></dialog>
 </body></html>
