@@ -28,6 +28,13 @@ jobs:
           fi
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Select system Chrome on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # Ubuntu's AppArmor policy permits sandboxed Chrome at this installed path.
+          test -x /opt/google/chrome/chrome
+          echo "CHROME_EXECPATH=/opt/google/chrome/chrome" >> "$GITHUB_ENV"
       - name: Browser integration (local fixture, no WebLiero token)
         shell: bash
         env:
