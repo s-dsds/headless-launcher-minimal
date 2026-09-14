@@ -93,7 +93,7 @@ func TestPanelBrowser(t *testing.T) {
 	}
 	if screenshot := os.Getenv("WLHL_PANEL_SCREENSHOT"); screenshot != "" {
 		var png []byte
-		if err := chromedp.Run(ctx, chromedp.EmulateViewport(1200, 900), chromedp.Click("article details:last-child summary"), chromedp.FullScreenshot(&png, 90)); err != nil {
+		if err := chromedp.Run(ctx, chromedp.EmulateViewport(1200, 900), chromedp.Click("article details:last-child summary"), chromedp.FullScreenshot(&png, 100)); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(screenshot, png, 0600); err != nil {

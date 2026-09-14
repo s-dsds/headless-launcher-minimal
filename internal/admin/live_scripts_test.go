@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +88,10 @@ func TestPanelBrowserLiveScripts(t *testing.T) {
 			t.Fatal(err)
 		}
 		var png []byte
-		run(chromedp.EmulateViewport(1440, 1200), chromedp.FullScreenshot(&png, 90))
+		run(chromedp.EmulateViewport(1440, 1200), chromedp.FullScreenshot(&png, 100))
+		if !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatal("screenshot is not PNG")
+		}
 		if err := os.WriteFile(filepath.Join(root, name), png, 0644); err != nil {
 			t.Fatal(err)
 		}
