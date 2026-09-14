@@ -16,20 +16,12 @@ import (
 //go:embed web/*
 var assets embed.FS
 
-// Listen only accepts numeric loopback addresses; a separate port alone is not privacy.
-func Listen(address string) (net.Listener, error) {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return nil, &net.AddrError{Err: "admin address must be a numeric loopback address (127.0.0.1 or ::1)", Addr: address}
-	}
-	return net.Listen("tcp", address)
-}
+// Listen honors the chosen network interface; the CLI defaults to loopback.
+func Listen(address string) (net.Listener, error) { return net.Listen("tcp", address) }
 
 func Handler(m *launcher.Manager, token, host string) http.Handler {
+	bindIP, _, _ := net.SplitHostPort(host)
+	localOnly := net.ParseIP(bindIP).IsLoopback()
 	files, _ := fs.Sub(assets, "web")
 	static := http.FileServer(http.FS(files))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,12 +29,17 @@ func Handler(m *launcher.Manager, token, host string) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-		// Pin Host to the actual listener address to reject DNS rebinding.
-		if r.Host != host {
+		// Local mode pins the listener host. Network mode accepts this server's
+		// IP or DNS name, but browser requests must still be same-origin.
+		if localOnly && r.Host != host {
 			http.Error(w, "invalid host", http.StatusForbidden)
 			return
 		}
-		if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+host {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if origin := r.Header.Get("Origin"); origin != "" && origin != scheme+"://"+r.Host {
 			http.Error(w, "invalid origin", http.StatusForbidden)
 			return
 		}

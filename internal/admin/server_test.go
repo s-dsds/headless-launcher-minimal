@@ -44,18 +44,18 @@ func TestPrivateAPI(t *testing.T) {
 	}
 }
 
-func TestLoopbackOnly(t *testing.T) {
-	for _, address := range []string{"0.0.0.0:0", "[::]:0", "localhost:0", "192.0.2.1:0"} {
-		if l, err := Listen(address); err == nil {
-			l.Close()
-			t.Fatalf("accepted %s", address)
+func TestSelectableBind(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:0", "0.0.0.0:0"} {
+		listener, err := Listen(address)
+		if err != nil {
+			t.Fatal(err)
 		}
+		listener.Close()
 	}
-	l, err := Listen("127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	if listener, err := Listen("not-an-address"); err == nil {
+		listener.Close()
+		t.Fatal("accepted malformed address")
 	}
-	l.Close()
 }
 
 func TestRunBodyValidation(t *testing.T) {
@@ -69,6 +69,59 @@ func TestRunBodyValidation(t *testing.T) {
 		h.ServeHTTP(w, r)
 		if w.Code != 400 {
 			t.Fatalf("%s: %d", body, w.Code)
+		}
+	}
+}
+
+func TestOutsideAccess(t *testing.T) {
+	m := launcher.NewManager(launcher.Config{}, nil)
+	h := Handler(m, "secret", "0.0.0.0:8787")
+	for _, tc := range []struct {
+		name, host, origin, auth string
+		want                     int
+	}{
+		{"IP address", "192.0.2.10:8787", "http://192.0.2.10:8787", "Bearer secret", 200},
+		{"DNS name", "rooms.example.com:8787", "http://rooms.example.com:8787", "Bearer secret", 200},
+		{"anonymous", "rooms.example.com:8787", "http://rooms.example.com:8787", "", 401},
+		{"wrong token", "rooms.example.com:8787", "http://rooms.example.com:8787", "Bearer wrong", 401},
+		{"cross origin", "rooms.example.com:8787", "https://evil.example", "Bearer secret", 403},
+		{"remote CLI", "192.0.2.10:8787", "", "Bearer secret", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "http://"+tc.host+"/api/rooms", nil)
+			r.Header.Set("Origin", tc.origin)
+			r.Header.Set("Authorization", tc.auth)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("%d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestDirectHTTPS(t *testing.T) {
+	m := launcher.NewManager(launcher.Config{}, nil)
+	server := httptest.NewTLSServer(Handler(m, "secret", "0.0.0.0:8787"))
+	defer server.Close()
+	for _, origin := range []string{server.URL, strings.Replace(server.URL, "https:", "http:", 1)} {
+		req, err := http.NewRequest("GET", server.URL+"/api/rooms", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer secret")
+		req.Header.Set("Origin", origin)
+		response, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		want := 200
+		if origin != server.URL {
+			want = 403
+		}
+		if response.StatusCode != want {
+			t.Fatalf("got %d", response.StatusCode)
 		}
 	}
 }
