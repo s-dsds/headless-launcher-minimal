@@ -4,6 +4,8 @@ Host WebLiero rooms in headless Chrome, with a token-protected web panel. Add ro
 choose scripts, and start them without editing configuration files. Windows and
 Linux are supported; no Node.js runtime is required.
 
+[Download Windows and Linux binaries](https://github.com/s-dsds/headless-launcher-minimal/releases/latest).
+
 ## Start the launcher
 
 Install Google Chrome or Chromium, then run the executable:
@@ -86,9 +88,44 @@ Local file changes are not watched: stop the room, choose **Edit**, re-select th
 changed files/folder, then save. Clear the list first if you want to replace all
 scripts, including removing files that no longer exist in the source folder.
 
-Use **Stop**, **Edit**, **Start**, **Restart**, and **Delete** on each room card.
+Use **Stop**, **Edit**, **Start**, **Restart**, **Run scripts**, and **Delete** on each room card.
 Editing or deleting a running room requires stopping it first. A failed start
 keeps the saved definition so you can correct it or try another token.
+
+## Execute scripts in a running room
+
+Click **Run scripts** on a running room, choose JavaScript files or a directory,
+review/reorder the list, then click **Run now**. The scripts execute sequentially
+in that room's existing browser tab, including awaiting returned Promises. No
+restart or new WebLiero token is needed, and the saved startup scripts are unchanged.
+Use `window.WLROOM` to access the existing room; do not call `WLInit` again.
+
+After successful execution, the panel opens **Recent logs** and shows a completion
+message. Script errors appear in the dialog and logs. As with CLI `run`, an
+execution failure closes the tab because changes may have partially applied.
+Start it again with a fresh token if this happens.
+
+## Logs and panel screenshots
+
+Every room card has **Recent logs**: timestamped console output, JavaScript errors,
+script filenames, and lifecycle messages. The panel refreshes them every 2.5
+seconds and retains the most recent 300 lines per room in memory. Logs are not
+saved across launcher restarts.
+
+These screenshots show the actual panel using demo rooms and a local browser
+fixture; they contain no real room tokens or production data.
+
+**Room dashboard with live script output:**
+
+![Room dashboard with running and stopped rooms and recent logs](docs/screenshots/dashboard.png)
+
+**Execute additional scripts without restarting the room:**
+
+![Run scripts dialog with file and folder pickers and execution ordering](docs/screenshots/run-scripts.png)
+
+**Room settings and saved startup scripts:**
+
+![Room editor with settings, script picker, and optional launch token field](docs/screenshots/room-editor.png)
 
 ## Room creation and existing scripts
 
@@ -216,6 +253,6 @@ This consolidated Go fork retains the original Go launcher's history; see
 ```sh
 git remote add origin git@github.com:OWNER/REPOSITORY.git
 git push -u origin minimal:main
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.3.0
+git push origin v0.3.0
 ```

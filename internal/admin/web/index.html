@@ -7,6 +7,7 @@
 <form id="login"><h2>Connect to your launcher</h2><p>Paste the admin token printed by <code>wlhl server</code>. This is separate from your WebLiero room token.</p><label for="token">Admin token</label><div class="credentials"><input id="token" type="password" autocomplete="off" required><button>Connect</button></div></form>
 <section id="dashboard" hidden>
 <div class="toolbar"><p id="summary" aria-live="polite"></p><div class="actions"><button id="add-room">Add room</button><button id="logout" class="secondary">Disconnect</button></div></div>
+<p id="notice" role="status"></p>
 <div id="empty" hidden><h2>Your rooms belong here</h2><p>Add a room, choose your scripts, and paste a WebLiero token when you’re ready to start.</p></div><div id="rooms"></div>
 </section>
 <p id="error" role="alert"></p>
@@ -30,4 +31,12 @@
 <p id="editor-error" role="alert"></p><div class="actions"><button type="submit" value="start">Save &amp; start</button><button type="submit" value="save" class="secondary">Save for later</button></div>
 </form></dialog>
 <dialog id="start-dialog"><form id="start-form"><h2 id="start-title">Start room</h2><label for="start-token">Fresh WebLiero token</label><input id="start-token" type="password" autocomplete="off" maxlength="4096" required><p class="help">The saved scripts and settings will be used. Tokens are never reused automatically. You can paste the same token again when testing if WebLiero still accepts it.</p><p id="start-error" role="alert"></p><div class="actions"><button type="submit">Start room</button><button id="start-cancel" type="button" class="secondary">Cancel</button></div></form></dialog>
+<dialog id="run-dialog"><form id="run-form">
+<div class="room-heading"><h2 id="run-title">Run scripts</h2><button type="button" id="run-close" class="secondary">Close</button></div>
+<p>Execute additional scripts in the current room, without restarting or supplying another token. They are not added to the saved startup scripts.</p>
+<div class="pickers"><label class="picker">Choose files<input id="run-script-files" type="file" accept=".js" multiple></label><label class="picker">Choose folder<input id="run-script-folder" type="file" webkitdirectory multiple></label><button type="button" id="run-clear" class="secondary">Clear list</button></div>
+<p id="run-script-count" class="help" aria-live="polite"></p><ol id="run-script-list"></ol>
+<p class="help">Scripts run in this order and can use <code>window.WLROOM</code>. Do not call <code>WLInit</code> again. A script failure stops the room because changes may have partially applied.</p>
+<p id="run-error" role="alert"></p><div class="actions"><button type="submit">Run now</button></div>
+</form></dialog>
 </body></html>
