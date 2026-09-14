@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -38,7 +39,7 @@ func run(args []string) error {
 		fmt.Println(`WebLiero minimal launcher
 
   wlhl server [--data rooms.json] [--listen 127.0.0.1:8787]
-              [--chrome-path PATH] [--show]
+              [--chrome-path PATH] [--show] [--tls-cert FILE --tls-key FILE]
   wlhl ls
   wlhl start ROOM   (prompts for a fresh room token)
   wlhl stop ROOM
@@ -65,14 +66,20 @@ Add and edit rooms in the web panel. Saved rooms are restored stopped.`)
 func serve(args []string) error {
 	f := flag.NewFlagSet("server", flag.ContinueOnError)
 	configPath := f.String("data", "rooms.json", "saved room storage (managed by the panel)")
-	listen := f.String("listen", "127.0.0.1:8787", "loopback admin address")
+	listen := f.String("listen", "127.0.0.1:8787", "admin bind address; use 0.0.0.0:8787 to accept outside connections")
 	chrome := f.String("chrome-path", os.Getenv("CHROME_EXECPATH"), "Chrome/Chromium executable")
 	show := f.Bool("show", false, "show browser for troubleshooting")
+	certFile := f.String("tls-cert", "", "PEM certificate file for direct HTTPS")
+	keyFile := f.String("tls-key", "", "PEM private key file for direct HTTPS")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() != 0 {
 		return errors.New("unexpected server arguments")
+	}
+	tlsConfig, err := loadTLSConfig(*certFile, *keyFile)
+	if err != nil {
+		return err
 	}
 	c, err := launcher.LoadConfig(*configPath)
 	if err != nil {
@@ -103,10 +110,23 @@ func serve(args []string) error {
 	m := launcher.NewManager(c, browser.NewPage)
 	m.SetStorage(*configPath)
 	defer func() { browser.Close(); m.Close() }()
-	server := &http.Server{Handler: admin.Handler(m, token, listener.Addr().String()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 100 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Handler: admin.Handler(m, token, listener.Addr().String()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 100 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: tlsConfig}
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
-	fmt.Printf("Admin panel: http://%s\nAdmin token: %s\n", listener.Addr(), token)
+	go func() {
+		if tlsConfig != nil {
+			done <- server.ServeTLS(listener, "", "")
+		} else {
+			done <- server.Serve(listener)
+		}
+	}()
+	panelURL := "http://" + listener.Addr().String()
+	if tlsConfig != nil {
+		panelURL = "https://" + listener.Addr().String()
+	}
+	fmt.Printf("Admin panel: %s\nAdmin token: %s\n", panelURL, token)
+	if addr, ok := listener.Addr().(*net.TCPAddr); ok && addr.IP.IsUnspecified() {
+		fmt.Printf("From another device, replace %s with this server’s IP or hostname.\n", addr.IP)
+	}
 	var serveErr error
 	select {
 	case <-ctx.Done():
@@ -127,6 +147,20 @@ func serve(args []string) error {
 	return serveErr
 }
 
+func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("provide both --tls-cert and --tls-key")
+	}
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load TLS certificate/key: %w", err)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}, nil
+}
+
 func endpoint() (string, error) {
 	address := os.Getenv("WLHL_URL")
 	if address == "" {
@@ -136,9 +170,8 @@ func endpoint() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ip := net.ParseIP(u.Hostname())
-	if u.Scheme != "http" || ip == nil || !ip.IsLoopback() || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return "", errors.New("WLHL_URL must be an HTTP numeric loopback URL")
+	if (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("WLHL_URL must be an HTTP or HTTPS server URL without a path")
 	}
 	return strings.TrimRight(address, "/"), nil
 }
@@ -160,7 +193,7 @@ func request(ctx context.Context, method, path string, body []byte) ([]byte, err
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	// Local control must never travel through an environment-configured proxy.
+	// Connect directly to the explicitly selected server, without environment proxies.
 	httpClient := &http.Client{Timeout: 100 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer httpClient.CloseIdleConnections()
 	resp, err := httpClient.Do(req)

@@ -1,6 +1,6 @@
 # WebLiero Headless Launcher — Minimal
 
-Host WebLiero rooms in headless Chrome, with a private local web panel. Add rooms,
+Host WebLiero rooms in headless Chrome, with a token-protected web panel. Add rooms,
 choose scripts, and start them without editing configuration files. Windows and
 Linux are supported; no Node.js runtime is required.
 
@@ -29,6 +29,44 @@ go build -o wlhl ./cmd/wlhl
 ```
 
 On Windows, use `go build -o wlhl.exe ./cmd/wlhl`.
+
+## Local or outside access — your choice
+
+Local access is the default:
+
+```sh
+./wlhl server
+```
+
+To accept connections from other devices, bind all IPv4 interfaces:
+
+```sh
+./wlhl server --listen 0.0.0.0:8787
+```
+
+Then open `http://SERVER_IP:8787` (or your server's hostname) and enter the admin
+token printed by the launcher. Allow inbound TCP port 8787 in the server firewall
+and, if applicable, forward it through your router. You can bind a particular
+interface instead, such as `--listen 192.168.1.10:8787`, or IPv6 with
+`--listen '[::]:8787'`. The listener is implemented directly in Go; no reverse
+proxy is required.
+
+For encrypted outside access, Go can serve HTTPS directly with your PEM
+certificate and private key:
+
+```sh
+./wlhl server --listen 0.0.0.0:8787 --tls-cert fullchain.pem --tls-key privkey.pem
+```
+
+Open `https://YOUR_HOSTNAME:8787`, using a hostname covered by the certificate.
+Both TLS flags are required together; without them the server uses HTTP.
+HTTP does not encrypt admin tokens, room tokens, or scripts in transit. The
+launcher loads certificates on startup; restart it after renewing certificate
+files. On Windows, use `.\wlhl.exe` with the same flags.
+
+The CLI also accepts outside addresses: set `WLHL_URL` to the server's HTTP or
+HTTPS URL and `WLHL_ADMIN_TOKEN` to its admin token. HTTPS verifies certificates
+normally; there is no insecure-certificate bypass.
 
 ## Add a room in the panel
 
@@ -134,9 +172,10 @@ stable **admin** token. Otherwise a fresh token is generated on each server star
 
 ## Privacy and limits
 
-- Administration binds only to a numeric loopback address (`127.0.0.1` or `::1`).
-  Use the printed URL, not `localhost`. Every API read/write requires the admin
-  token, with Host and Origin checks against rebinding and cross-origin requests.
+- Administration binds to `127.0.0.1` by default; `--listen` controls whether it
+  accepts outside connections. Every API read/write requires the admin token in
+  both modes. Browser requests must be same-origin. Local mode also pins the Host
+  header to its bound address; outside mode accepts your server's IP or DNS name.
 - The panel has no external assets, analytics, or browser credential storage.
   Refreshing the page requires reconnecting. Room tokens are sent only for the
   selected start/restart and retained in memory only while that launch is active.
