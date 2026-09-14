@@ -55,7 +55,7 @@ jobs:
             mkdir -p "$dir"
             GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" -o "$dir/wlhl$suffix" ./cmd/wlhl
             cp README.md UPSTREAM.md "$dir/"
-            cp -r examples "$dir/"
+            cp -r examples docs "$dir/"
             if [ "$os" = windows ]; then
               (cd dist && zip -r "wlhl-$target.zip" "wlhl-$target")
             else

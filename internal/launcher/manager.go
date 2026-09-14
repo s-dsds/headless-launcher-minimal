@@ -308,6 +308,7 @@ func (m *Manager) Action(id, action, token string, scripts []Script) error {
 			r.fail(safe)
 			return safe
 		}
+		r.log(fmt.Sprintf("Executed %d additional script(s)", len(scripts)))
 		return nil
 	default:
 		return fmt.Errorf("unknown action")

@@ -7,6 +7,10 @@ let selectedScripts = [];
 let importing = false;
 let saving = false;
 let startTarget = null;
+let runTarget = null;
+let runScripts = [];
+let runImporting = false;
+let runningScripts = false;
 const cards = new Map();
 const $ = id => document.getElementById(id);
 function element(tag, text, className) {
@@ -45,10 +49,11 @@ function card(room) {
   const status = element('p');
   const actions = element('div', undefined, 'actions');
   const view = {root, title, state, settings, status, link, buttons: [], busy: false, room};
-  for (const name of ['start', 'restart', 'stop', 'edit', 'delete']) {
-    const button = element('button', name[0].toUpperCase() + name.slice(1), 'secondary'); button.dataset.action = name;
+  for (const name of ['start', 'restart', 'run', 'stop', 'edit', 'delete']) {
+    const button = element('button', name === 'run' ? 'Run scripts' : name[0].toUpperCase() + name.slice(1), 'secondary'); button.dataset.action = name;
     button.addEventListener('click', async () => {
       if (name === 'start' || name === 'restart') return openStart(view.room, name);
+      if (name === 'run') return openRun(view.room);
       if (name === 'edit') {
         try { openEditor(await api(roomPath(view.room.id))); } catch (error) { $('error').textContent = error.message; }
         return;
@@ -63,7 +68,7 @@ function card(room) {
     actions.append(button); view.buttons.push(button);
   }
   const details = element('details'); details.append(element('summary', 'Recent logs'));
-  view.logs = element('pre'); details.append(view.logs);
+  view.logs = element('pre'); details.append(view.logs); view.logDetails = details;
   const scripts = element('details'); scripts.append(element('summary', 'Saved scripts')); view.scripts = element('ol'); scripts.append(view.scripts);
   root.append(heading, settings, status, link, actions, scripts, details); $('rooms').append(root);
   return view;
@@ -81,7 +86,7 @@ async function refresh() {
       if (!cards.has(room.id)) cards.set(room.id, card(room));
       const view = cards.get(room.id); view.room = room; view.title.textContent = room.name;
       view.state.textContent = room.state; view.state.dataset.state = room.state;
-      view.settings.textContent = `${room.settings.maxPlayers} players · ${room.settings.public ? 'Public' : 'Unlisted'} · ${room.scriptNames.length} scripts`;
+      view.settings.textContent = `${room.settings.maxPlayers} players · ${room.settings.public ? 'Public' : 'Unlisted'} · ${room.scriptNames.length} script${room.scriptNames.length === 1 ? '' : 's'}`;
       view.status.textContent = room.error || (room.state === 'running' ? (room.link ? 'Room link received.' : 'Scripts loaded. Waiting for a room link; check logs for token or script errors.') : 'Ready to start with a fresh token.');
       let safeLink = false;
       try { safeLink = new URL(room.link).origin === 'https://www.webliero.com'; } catch {}
@@ -90,37 +95,41 @@ async function refresh() {
       view.scripts.replaceChildren(...room.scriptNames.map(name => element('li', name)));
       view.buttons.forEach(button => {
         const name = button.dataset.action;
-        button.disabled = view.busy || room.state === 'starting' || ((name === 'start' || name === 'edit' || name === 'delete') && room.state === 'running') || ((name === 'stop' || name === 'restart') && room.state === 'stopped');
+        button.disabled = view.busy || room.state === 'starting' || ((name === 'start' || name === 'edit' || name === 'delete') && room.state === 'running') || (name === 'run' && room.state !== 'running') || ((name === 'stop' || name === 'restart') && room.state === 'stopped');
       });
     }
   } catch (error) { if (currentSession === session) $('error').textContent = 'Launcher: ' + error.message; }
   finally { refreshing = false; }
 }
-function renderScripts() {
-  $('script-list').replaceChildren();
-  const bytes = selectedScripts.reduce((sum, s) => sum + new TextEncoder().encode(s.source).length, 0);
-  $('script-count').textContent = `${selectedScripts.length} scripts · ${(bytes / 1024).toFixed(1)} KiB / 4096 KiB`;
-  selectedScripts.forEach((script, index) => {
+function renderScripts(scripts = selectedScripts, prefix = 'script', busy = importing) {
+  $(prefix + '-list').replaceChildren();
+  const bytes = scripts.reduce((sum, s) => sum + new TextEncoder().encode(s.source).length, 0);
+  $(prefix + '-count').textContent = `${scripts.length} script${scripts.length === 1 ? '' : 's'} · ${(bytes / 1024).toFixed(1)} KiB / 4096 KiB`;
+  scripts.forEach((script, index) => {
     const row = element('li'); row.append(element('span', script.name));
     const controls = element('div', undefined, 'script-controls');
     for (const [label, delta] of [['↑', -1], ['↓', 1], ['Remove', 0]]) {
       const button = element('button', label, 'secondary'); button.type = 'button';
       button.setAttribute('aria-label', `${delta ? (delta < 0 ? 'Move up' : 'Move down') : 'Remove'} ${script.name}`);
-      button.disabled = importing || (delta === -1 && index === 0) || (delta === 1 && index === selectedScripts.length - 1);
+      button.disabled = busy || (delta === -1 && index === 0) || (delta === 1 && index === scripts.length - 1);
       button.onclick = () => {
-        if (delta) [selectedScripts[index], selectedScripts[index + delta]] = [selectedScripts[index + delta], selectedScripts[index]];
-        else selectedScripts.splice(index, 1);
-        renderScripts();
+        if (delta) [scripts[index], scripts[index + delta]] = [scripts[index + delta], scripts[index]];
+        else scripts.splice(index, 1);
+        renderScripts(scripts, prefix, busy);
       };
       controls.append(button);
     }
-    row.append(controls); $('script-list').append(row);
+    row.append(controls); $(prefix + '-list').append(row);
   });
 }
 function editorBusy(busy) { $('room-form').querySelectorAll('button, input').forEach(control => control.disabled = busy); }
-async function importFiles(fileList) {
-  if (importing) return;
-  importing = true; editorBusy(true); $('editor-error').textContent = '';
+async function importFiles(fileList, live = false) {
+  if (live ? runImporting : importing) return;
+  if (live) runImporting = true; else importing = true;
+  const setBusy = live ? runBusy : editorBusy;
+  const errorID = live ? 'run-error' : 'editor-error';
+  const prefix = live ? 'run-script' : 'script';
+  setBusy(true); $(errorID).textContent = '';
   try {
     const files = Array.from(fileList).filter(f => {
       const path = f.webkitRelativePath || f.name;
@@ -131,7 +140,7 @@ async function importFiles(fileList) {
     });
     if (!files.length) throw new Error('No JavaScript files found in this selection.');
     if (files.length > 100 || files.reduce((sum, f) => sum + f.size, 0) > 4 * 1024 * 1024) throw new Error('Choose at most 100 scripts and 4 MiB in total.');
-    const next = selectedScripts.slice();
+    const next = (live ? runScripts : selectedScripts).slice();
     for (const file of files) {
       const name = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
       const script = {name, source: await file.text()};
@@ -139,10 +148,16 @@ async function importFiles(fileList) {
       if (index < 0) next.push(script); else next[index] = script;
     }
     if (next.length > 100 || next.reduce((sum, s) => sum + new TextEncoder().encode(s.source).length, 0) > 4 * 1024 * 1024) throw new Error('The combined script list exceeds 100 files or 4 MiB.');
-    selectedScripts = next;
-    if (selectedScripts.some(s => /\bWLInit\s*\(/.test(s.source))) $('script-creates').checked = true;
-  } catch (error) { $('editor-error').textContent = error.message; }
-  finally { importing = false; editorBusy(false); renderScripts(); $('script-files').value = ''; $('script-folder').value = ''; }
+    if (live) runScripts = next; else {
+      selectedScripts = next;
+      if (selectedScripts.some(s => /\bWLInit\s*\(/.test(s.source))) $('script-creates').checked = true;
+    }
+  } catch (error) { $(errorID).textContent = error.message; }
+  finally {
+    if (live) runImporting = false; else importing = false;
+    setBusy(false); renderScripts(live ? runScripts : selectedScripts, prefix, false);
+    $(prefix + '-files').value = ''; $(prefix + '-folder').value = '';
+  }
 }
 function openEditor(profile) {
   $('room-form').reset(); editingID = profile?.id || ''; selectedScripts = profile?.scripts || [];
@@ -152,6 +167,35 @@ function openEditor(profile) {
   $('script-creates').checked = profile?.scriptCreatesRoom || false;
   $('editor-error').textContent = ''; renderScripts(); $('editor').showModal(); $('room-name').focus();
 }
+function runBusy(busy) { $('run-form').querySelectorAll('button, input').forEach(control => control.disabled = busy); }
+function openRun(room) {
+  runTarget = room.id; runScripts = []; $('run-form').reset();
+  $('run-title').textContent = 'Run scripts in ' + room.name;
+  $('run-error').textContent = ''; renderScripts(runScripts, 'run-script', false);
+  $('run-dialog').showModal();
+}
+$('run-script-files').onchange = event => importFiles(event.target.files, true);
+$('run-script-folder').onchange = event => importFiles(event.target.files, true);
+$('run-clear').onclick = () => { runScripts = []; renderScripts(runScripts, 'run-script', false); };
+$('run-close').onclick = () => $('run-dialog').close();
+$('run-dialog').addEventListener('cancel', event => { if (runImporting || runningScripts) event.preventDefault(); });
+$('run-dialog').addEventListener('close', () => { runScripts = []; });
+$('run-form').addEventListener('submit', async event => {
+  event.preventDefault(); if (runImporting || runningScripts) return;
+  if (!runScripts.length) { $('run-error').textContent = 'Choose at least one JavaScript file.'; return; }
+  const view = cards.get(runTarget);
+  if (!view || view.room.state !== 'running') { $('run-error').textContent = 'This room is no longer running.'; return; }
+  runningScripts = true; runBusy(true); view.busy = true;
+  view.buttons.forEach(button => button.disabled = true);
+  $('run-error').textContent = ''; $('notice').textContent = '';
+  try {
+    const count = runScripts.length;
+    await api(roomPath(runTarget) + '/run', 'POST', runScripts);
+    $('run-dialog').close(); view.logDetails.open = true;
+    $('notice').textContent = `Executed ${count} script${count === 1 ? '' : 's'} in ${view.room.name}. See Recent logs for output.`;
+  } catch (error) { $('run-error').textContent = error.message; view.logDetails.open = true; }
+  finally { runningScripts = false; view.busy = false; runBusy(false); await refresh(); }
+});
 $('script-files').onchange = event => importFiles(event.target.files);
 $('script-folder').onchange = event => importFiles(event.target.files);
 $('clear-scripts').onclick = () => { selectedScripts = []; renderScripts(); };
@@ -191,6 +235,6 @@ $('login').addEventListener('submit', async event => {
   event.preventDefault(); session++; token = $('token').value.trim(); $('token').value = ''; $('error').textContent = ''; await refresh();
 });
 $('logout').addEventListener('click', () => {
-  session++; token = ''; cards.clear(); $('rooms').replaceChildren(); $('editor').close(); $('start-dialog').close(); $('login').hidden = false; $('dashboard').hidden = true; $('error').textContent = '';
+  session++; token = ''; cards.clear(); $('rooms').replaceChildren(); $('editor').close(); $('start-dialog').close(); $('run-dialog').close(); $('notice').textContent = ''; $('login').hidden = false; $('dashboard').hidden = true; $('error').textContent = '';
 });
 setInterval(refresh, 2500);
